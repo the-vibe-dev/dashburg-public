@@ -59,6 +59,10 @@ import type {
   LocalOpsThread,
   LocalOpsTerminalSession,
   LocalOpsToolCall,
+  IdeaVaultCreateRequest,
+  IdeaVaultItem,
+  IdeaVaultPatchRequest,
+  OpportunityLineageTrace,
   PromotedIdea,
   PromotedIdeaCreateRequest,
   TopicOpportunity,
@@ -88,6 +92,20 @@ import type {
   RemoteServer,
   RemoteServerDetail,
   RemoteTerminalSession,
+  WebAgentOverview,
+  WebAgentArtifactList,
+  WebAgentDiscovery,
+  WebAgentGeneratedTests,
+  WebAgentLiveSession,
+  WebAgentLogs,
+  WebAgentReplayAssets,
+  WebAgentReport,
+  WebAgentRun,
+  WebAgentRunSettings,
+  WebAgentSessionAction,
+  WebAgentSessionResult,
+  WebAgentStatus,
+  WebAgentToolResult,
   TrendsExportRequest,
   TrendsRun,
   TrendsRunLogs,
@@ -96,6 +114,27 @@ import type {
   TrendsOpenAiKeyStatus,
   TrendsTopicActionRequest,
   TrendsTopicDetail,
+  TrendsTopicFactoryImportResponse,
+  AiVideoFactoryUploadOption,
+  ViralVideoAutomationSettings,
+  ViralVideoChannelProfile,
+  ViralVideoInsightDay,
+  ViralVideoInsightPost,
+  ViralVideoInsightsSummary,
+  ViralVideoOverview,
+  ViralVideoRun,
+  ViralVideoScript,
+  ViralCreatorChannelOverview,
+  ViralCreatorCreativeDraft,
+  ViralCreatorAutonomousHistoryItem,
+  ViralCreatorAutonomousProfile,
+  ViralCreatorAutonomousState,
+  ViralCreatorInboxItem,
+  ViralCreatorOrchestrationRun,
+  ViralCreatorResearchResult,
+  ViralCreatorState,
+  TopicFactoryQueueCreateRequest,
+  TopicFactoryQueueItem,
   TopicAppgenAnalyzeRunRequest,
   TopicAppgenAnalyzeRunResponse,
   TopicAppgenGenerateRequest,
@@ -140,6 +179,12 @@ import type {
   MemorySearchResponse,
   MemoryBriefResponse,
   MemoryCompactResponse,
+  DiscordDispatchTarget,
+  DiscordDispatchRequest,
+  DiscordApprovalRequest,
+  DispatchWorkerStatus,
+  DiscordSettings,
+  DiscordStatusPayload,
   ChatMessage,
   ChatMessageListResponse,
   ChatSession,
@@ -170,6 +215,12 @@ function isNotFoundError(error: unknown): boolean {
   return typeof maybe?.message === "string" && maybe.message.includes("404");
 }
 
+function shouldTryTopicFactoryFallback(error: unknown): boolean {
+  if (!isNotFoundError(error)) return false;
+  const message = String((error as { message?: unknown })?.message ?? "");
+  // Parse default route-missing message from ApiError: "<METHOD> <PATH> failed: 404"
+  return message.includes("failed: 404");
+}
 
 function videoIdeasRetry(failureCount: number, error: unknown): boolean {
   return !isNotFoundError(error) && failureCount < 2;
@@ -180,8 +231,68 @@ function looksLikeUuid(value: string | null | undefined): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(value).trim());
 }
 
+const topicFactoryQueueBases = ["/api/topic/queue", "/api/topicfactory/queue"] as const;
+let topicFactoryQueueUnavailable = false;
 let topicLogsTailUnavailable = false;
 
+async function getTopicFactoryQueue(): Promise<TopicFactoryQueueItem[]> {
+  if (topicFactoryQueueUnavailable) return [];
+  for (const base of topicFactoryQueueBases) {
+    try {
+      const rows = asArray<TopicFactoryQueueItem>(await apiGet<unknown>(base));
+      topicFactoryQueueUnavailable = false;
+      return rows;
+    } catch (error) {
+      if (shouldTryTopicFactoryFallback(error)) continue;
+      if (isNotFoundError(error)) return [];
+      throw error;
+    }
+  }
+  topicFactoryQueueUnavailable = true;
+  return [];
+}
+
+async function postTopicFactoryQueue(payload: TopicFactoryQueueCreateRequest): Promise<TopicFactoryQueueItem> {
+  topicFactoryQueueUnavailable = false;
+  for (const base of topicFactoryQueueBases) {
+    try {
+      return await apiPost<TopicFactoryQueueItem>(base, payload);
+    } catch (error) {
+      if (shouldTryTopicFactoryFallback(error)) continue;
+      throw error;
+    }
+  }
+  throw new ApiError("TopicFactory queue endpoint not available on backend", 404, "POST", topicFactoryQueueBases[0]);
+}
+
+async function postTopicFactoryQueueAction(queueId: string, action: "start" | "cancel"): Promise<TopicFactoryQueueItem> {
+  topicFactoryQueueUnavailable = false;
+  for (const base of topicFactoryQueueBases) {
+    try {
+      return await apiPost<TopicFactoryQueueItem>(`${base}/${queueId}/${action}`);
+    } catch (error) {
+      if (shouldTryTopicFactoryFallback(error)) continue;
+      throw error;
+    }
+  }
+  throw new ApiError("TopicFactory queue endpoint not available on backend", 404, "POST", `${topicFactoryQueueBases[0]}/${queueId}/${action}`);
+}
+
+async function deleteTopicFactoryQueueItem(queueId: string): Promise<{ ok: boolean; id: string; deleted: boolean }> {
+  topicFactoryQueueUnavailable = false;
+  for (const base of topicFactoryQueueBases) {
+    try {
+      return await apiDelete<{ ok: boolean; id: string; deleted: boolean }>(`${base}/${queueId}`);
+    } catch (error) {
+      if (shouldTryTopicFactoryFallback(error)) continue;
+      if (isNotFoundError(error) && String((error as { message?: unknown })?.message ?? "").toLowerCase().includes("queue item not found")) {
+        return { ok: true, id: queueId, deleted: false };
+      }
+      throw error;
+    }
+  }
+  throw new ApiError("TopicFactory queue endpoint not available on backend", 404, "DELETE", `${topicFactoryQueueBases[0]}/${queueId}`);
+}
 
 function isRunReadyStatus(status: unknown): boolean {
   const value = String(status ?? "").toLowerCase();
@@ -1116,6 +1227,439 @@ export function useTrendsExport() {
   });
 }
 
+export function useTrendsImportTopicFactory() {
+  return useMutation({
+    mutationFn: async (exported_payload: Record<string, unknown>) => {
+      try {
+        return await apiPost<TrendsTopicFactoryImportResponse>("/api/trends/topic-factory/import-trends", { exported_payload });
+      } catch (err) {
+        const message = String((err as Error)?.message ?? "");
+        if (message.includes("404")) {
+          try {
+            return await apiPost<TrendsTopicFactoryImportResponse>("/dashburg/api/topic-factory/import-trends", { exported_payload });
+          } catch (legacyErr) {
+            const legacyMessage = String((legacyErr as Error)?.message ?? "");
+            if (!legacyMessage.includes("404") && !legacyMessage.includes("405")) throw legacyErr;
+            try {
+              return await apiPost<TrendsTopicFactoryImportResponse>("/api/topic/appgen/import-trends", { exported_payload });
+            } catch (topicErr) {
+              const topicMessage = String((topicErr as Error)?.message ?? "");
+              if (!topicMessage.includes("404") && !topicMessage.includes("405")) throw topicErr;
+              return await apiPost<TrendsTopicFactoryImportResponse>("/api/v1/appgen/import-trends", exported_payload);
+            }
+          }
+        }
+        throw err;
+      }
+    },
+  });
+}
+
+// IdeaVault
+export function useIdeaVaultItems(params?: {
+  search?: string;
+  status?: string;
+  type?: string;
+  tag?: string;
+  pinned?: boolean;
+  sort?: "priority" | "newest" | "oldest" | "score";
+  limit?: number;
+  offset?: number;
+  include_payload?: boolean;
+  enabled?: boolean;
+}) {
+  return useQuery({
+    queryKey: ["ideavault", "items", params ?? {}],
+    queryFn: () => {
+      const query = new URLSearchParams();
+      if (params?.search) query.set("search", params.search);
+      if (params?.status) query.set("status", params.status);
+      if (params?.type) query.set("type", params.type);
+      if (params?.tag) query.set("tag", params.tag);
+      if (typeof params?.pinned === "boolean") query.set("pinned", String(params.pinned));
+      if (params?.sort) query.set("sort", params.sort);
+      if (typeof params?.limit === "number") query.set("limit", String(params.limit));
+      if (typeof params?.offset === "number") query.set("offset", String(params.offset));
+      if (typeof params?.include_payload === "boolean") query.set("include_payload", String(params.include_payload));
+      const suffix = query.toString() ? `?${query.toString()}` : "";
+      return apiGet<IdeaVaultItem[]>(`/api/ideavault/items${suffix}`);
+    },
+    enabled: params?.enabled ?? true,
+    refetchInterval: (params?.enabled ?? true) ? 15_000 : false,
+  });
+}
+
+export function useIdeaVaultItem(itemId: string | null) {
+  return useQuery({
+    queryKey: ["ideavault", "item", itemId],
+    queryFn: () => apiGet<IdeaVaultItem>(`/api/ideavault/items/${itemId}`),
+    enabled: Boolean(itemId),
+  });
+}
+
+export function useCreateIdeaVaultItem() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: IdeaVaultCreateRequest) => apiPost<IdeaVaultItem>("/api/ideavault/items", payload),
+    onSuccess: () => client.invalidateQueries({ queryKey: ["ideavault", "items"] }),
+  });
+}
+
+export function usePatchIdeaVaultItem() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ itemId, payload }: { itemId: string; payload: IdeaVaultPatchRequest }) =>
+      apiPatch<IdeaVaultItem>(`/api/ideavault/items/${itemId}`, payload),
+    onSuccess: (updated) => {
+      client.setQueriesData(
+        { queryKey: ["ideavault", "items"] },
+        (prev: IdeaVaultItem[] | undefined) => {
+          if (!Array.isArray(prev)) return prev;
+          return prev.map((row) => (row.id === updated.id ? { ...row, ...updated } : row));
+        },
+      );
+      client.setQueryData(["ideavault", "item", updated.id], updated);
+    },
+  });
+}
+
+export function useDeleteIdeaVaultItem() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (itemId: string) => apiDelete<{ ok: boolean }>(`/api/ideavault/items/${itemId}`),
+    onSuccess: () => client.invalidateQueries({ queryKey: ["ideavault", "items"] }),
+  });
+}
+
+export function useReorderIdeaVaultItems() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (orderedIds: string[]) => apiPost<{ ok: boolean }>("/api/ideavault/items/reorder", { orderedIds }),
+    onSuccess: () => client.invalidateQueries({ queryKey: ["ideavault", "items"] }),
+  });
+}
+
+export function useTopicFactoryQueue(enabled = true) {
+  return useQuery({
+    queryKey: ["topicfactory", "queue"],
+    queryFn: () => getTopicFactoryQueue(),
+    enabled,
+    refetchInterval: enabled ? 10_000 : false,
+    retry: (count, error) => !isNotFoundError(error) && count < 2,
+    refetchOnWindowFocus: false,
+  });
+}
+
+export function useEnqueueTopicFactory() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: TopicFactoryQueueCreateRequest) => postTopicFactoryQueue(payload),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: ["topicfactory", "queue"] });
+      client.invalidateQueries({ queryKey: ["ideavault", "items"] });
+    },
+  });
+}
+
+export function useIdeaVaultLineage(itemId: string | null) {
+  return useQuery({
+    queryKey: ["ideavault", "lineage", itemId],
+    queryFn: () => apiGet<OpportunityLineageTrace>(`/api/ideavault/items/${itemId}/lineage`),
+    enabled: Boolean(itemId),
+    refetchInterval: itemId ? 20_000 : false,
+  });
+}
+
+export function useLineageTrace(kind: string | null, nodeId: string | null) {
+  return useQuery({
+    queryKey: ["lineage", "trace", kind ?? "", nodeId ?? ""],
+    queryFn: () => apiGet<OpportunityLineageTrace>(`/api/lineage/trace?kind=${encodeURIComponent(kind ?? "")}&id=${encodeURIComponent(nodeId ?? "")}`),
+    enabled: Boolean(kind && nodeId),
+    refetchInterval: kind && nodeId ? 20_000 : false,
+  });
+}
+
+export function useTransformSignalToOpportunities() {
+  return useMutation({
+    mutationFn: (payload: Record<string, unknown>) =>
+      apiPost<{ source: Record<string, unknown>; forms: Array<Record<string, unknown>>; next_actions: Array<Record<string, unknown>> }>(
+        "/api/appgen/transform/from-signal",
+        payload,
+      ),
+  });
+}
+
+export function useStartTopicFactoryQueueItem() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (queueId: string) => postTopicFactoryQueueAction(queueId, "start"),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: ["topicfactory", "queue"] });
+      client.invalidateQueries({ queryKey: ["ideavault", "items"] });
+    },
+  });
+}
+
+export function useCancelTopicFactoryQueueItem() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (queueId: string) => postTopicFactoryQueueAction(queueId, "cancel"),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: ["topicfactory", "queue"] });
+      client.invalidateQueries({ queryKey: ["ideavault", "items"] });
+    },
+  });
+}
+
+export function useDeleteTopicFactoryQueueItem() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (queueId: string) => deleteTopicFactoryQueueItem(queueId),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: ["topicfactory", "queue"] });
+      client.invalidateQueries({ queryKey: ["ideavault", "items"] });
+    },
+  });
+}
+
+// WebAgent
+export function useWebAgentOverview() {
+  return useQuery({
+    queryKey: ["webagent", "overview"],
+    queryFn: () => apiGet<WebAgentOverview>("/api/webagent/overview"),
+    refetchInterval: 10_000,
+    retry: false,
+  });
+}
+
+export function useWebAgentRuns(filters?: { status?: string; saved_only?: boolean; limit?: number }) {
+  const params = new URLSearchParams();
+  if (filters?.status) params.set("status", filters.status);
+  if (filters?.saved_only) params.set("saved_only", "true");
+  if (filters?.limit) params.set("limit", String(filters.limit));
+  const query = params.toString();
+  return useQuery({
+    queryKey: ["webagent", "runs", query],
+    queryFn: async () => {
+      const payload = await apiGet<{ items: WebAgentRun[] }>(`/api/webagent/runs${query ? `?${query}` : ""}`);
+      return payload.items ?? [];
+    },
+    refetchInterval: 8_000,
+    retry: false,
+  });
+}
+
+export function useWebAgentRun(runId: string | null) {
+  return useQuery({
+    queryKey: ["webagent", "run", runId],
+    queryFn: () => apiGet<WebAgentRun>(`/api/webagent/runs/${runId}`),
+    enabled: Boolean(runId),
+    refetchInterval: (query) => {
+      const row = query.state.data;
+      if (!row) return 5_000;
+      if (["completed", "failed", "cancelled"].includes(String(row.status))) return false;
+      return 5_000;
+    },
+    retry: false,
+  });
+}
+
+export function useCreateWebAgentRun() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: {
+      target_url: string;
+      run_type: string;
+      node_id?: string;
+      notes?: string;
+      settings: Partial<WebAgentRunSettings>;
+    }) => apiPost<WebAgentRun>("/api/webagent/runs", payload),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: ["webagent", "overview"] });
+      client.invalidateQueries({ queryKey: ["webagent", "runs"] });
+      client.invalidateQueries({ queryKey: ["remote", "jobs"] });
+    },
+  });
+}
+
+export function useRetryWebAgentRun() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (runId: string) => apiPost<WebAgentRun>(`/api/webagent/runs/${runId}/retry`, {}),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: ["webagent", "overview"] });
+      client.invalidateQueries({ queryKey: ["webagent", "runs"] });
+    },
+  });
+}
+
+export function useSaveWebAgentReport() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ runId, title }: { runId: string; title?: string }) =>
+      apiPost<WebAgentReport>(`/api/webagent/runs/${runId}/save-report`, { title: title ?? "" }),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: ["webagent", "runs"] });
+      client.invalidateQueries({ queryKey: ["webagent", "reports"] });
+    },
+  });
+}
+
+export function useMarkWebAgentRunUseful() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ runId, is_useful }: { runId: string; is_useful: boolean }) =>
+      apiPost<WebAgentRun>(`/api/webagent/runs/${runId}/useful`, { is_useful }),
+    onSuccess: (_data, vars) => {
+      client.invalidateQueries({ queryKey: ["webagent", "run", vars.runId] });
+      client.invalidateQueries({ queryKey: ["webagent", "runs"] });
+      client.invalidateQueries({ queryKey: ["webagent", "overview"] });
+    },
+  });
+}
+
+export function useWebAgentReports(limit = 200) {
+  return useQuery({
+    queryKey: ["webagent", "reports", limit],
+    queryFn: async () => {
+      const payload = await apiGet<{ items: WebAgentReport[] }>(`/api/webagent/reports?limit=${limit}`);
+      return payload.items ?? [];
+    },
+    refetchInterval: 12_000,
+    retry: false,
+  });
+}
+
+export function useWebAgentStatus(nodeId?: string) {
+  const query = nodeId ? `?node_id=${encodeURIComponent(nodeId)}` : "";
+  return useQuery({
+    queryKey: ["webagent", "status", nodeId ?? ""],
+    queryFn: () => apiGet<WebAgentStatus>(`/api/webagent/status${query}`),
+    refetchInterval: 15_000,
+    retry: false,
+  });
+}
+
+export function useWebAgentRunLive(runId: string | null) {
+  return useQuery({
+    queryKey: ["webagent", "run-live", runId],
+    queryFn: () => apiGet<WebAgentLiveSession>(`/api/webagent/runs/${runId}/live`),
+    enabled: Boolean(runId),
+    refetchInterval: 5_000,
+    retry: false,
+  });
+}
+
+export function useWebAgentRunArtifacts(runId: string | null) {
+  return useQuery({
+    queryKey: ["webagent", "run-artifacts", runId],
+    queryFn: () => apiGet<WebAgentArtifactList>(`/api/webagent/runs/${runId}/artifacts`),
+    enabled: Boolean(runId),
+    refetchInterval: 5_000,
+    retry: false,
+  });
+}
+
+export function useWebAgentRunLogs(runId: string | null, limit = 800) {
+  return useQuery({
+    queryKey: ["webagent", "run-logs", runId, limit],
+    queryFn: () => apiGet<WebAgentLogs>(`/api/webagent/runs/${runId}/logs?limit=${limit}`),
+    enabled: Boolean(runId),
+    refetchInterval: 4_000,
+    retry: false,
+  });
+}
+
+export function useWebAgentRunReplay(runId: string | null) {
+  return useQuery({
+    queryKey: ["webagent", "run-replay", runId],
+    queryFn: () => apiGet<WebAgentReplayAssets>(`/api/webagent/runs/${runId}/replay`),
+    enabled: Boolean(runId),
+    refetchInterval: 8_000,
+    retry: false,
+  });
+}
+
+export function useWebAgentRunScreenshots(runId: string | null) {
+  return useQuery({
+    queryKey: ["webagent", "run-screenshots", runId],
+    queryFn: () => apiGet<{ run_id: string; items: Array<Record<string, unknown>>; count: number }>(`/api/webagent/runs/${runId}/screenshots`),
+    enabled: Boolean(runId),
+    refetchInterval: 5_000,
+    retry: false,
+  });
+}
+
+export function useWebAgentRunGeneratedTests(runId: string | null) {
+  return useQuery({
+    queryKey: ["webagent", "run-generated-tests", runId],
+    queryFn: () => apiGet<WebAgentGeneratedTests>(`/api/webagent/runs/${runId}/generated-tests`),
+    enabled: Boolean(runId),
+    refetchInterval: 8_000,
+    retry: false,
+  });
+}
+
+export function useWebAgentRunDiscovery(runId: string | null) {
+  return useQuery({
+    queryKey: ["webagent", "run-discovery", runId],
+    queryFn: () => apiGet<WebAgentDiscovery>(`/api/webagent/runs/${runId}/discovery`),
+    enabled: Boolean(runId),
+    refetchInterval: 8_000,
+    retry: false,
+  });
+}
+
+export function useCreateWebAgentSession() {
+  return useMutation({
+    mutationFn: (payload: { target_url: string; node_id?: string; settings?: Record<string, unknown>; timeout_seconds?: number }) =>
+      apiPost<WebAgentSessionResult>("/api/webagent/sessions", payload),
+  });
+}
+
+export function useWebAgentSessionStatus() {
+  return useMutation({
+    mutationFn: ({ sessionId, nodeId, timeoutSeconds }: { sessionId: string; nodeId?: string; timeoutSeconds?: number }) => {
+      const params = new URLSearchParams();
+      if (nodeId) params.set("node_id", nodeId);
+      if (timeoutSeconds) params.set("timeout_seconds", String(timeoutSeconds));
+      return apiGet<WebAgentSessionResult>(`/api/webagent/sessions/${encodeURIComponent(sessionId)}${params.toString() ? `?${params.toString()}` : ""}`);
+    },
+  });
+}
+
+export function useCloseWebAgentSession() {
+  return useMutation({
+    mutationFn: ({ sessionId, nodeId, timeoutSeconds }: { sessionId: string; nodeId?: string; timeoutSeconds?: number }) => {
+      const params = new URLSearchParams();
+      if (nodeId) params.set("node_id", nodeId);
+      if (timeoutSeconds) params.set("timeout_seconds", String(timeoutSeconds));
+      return apiDelete<WebAgentSessionResult>(`/api/webagent/sessions/${encodeURIComponent(sessionId)}${params.toString() ? `?${params.toString()}` : ""}`);
+    },
+  });
+}
+
+export function useWebAgentSessionAction() {
+  return useMutation({
+    mutationFn: ({ sessionId, payload }: { sessionId: string; payload: WebAgentSessionAction & { action: string } }) =>
+      apiPost<WebAgentSessionResult>(`/api/webagent/sessions/${encodeURIComponent(sessionId)}/actions`, payload),
+  });
+}
+
+export function useWebAgentAction() {
+  return useMutation({
+    mutationFn: (payload: WebAgentSessionAction & { action: string }) => apiPost<WebAgentSessionResult>("/api/webagent/actions", payload),
+  });
+}
+
+export function useWebAgentTool() {
+  return useMutation({
+    mutationFn: ({ tool, payload }: { tool: string; payload: WebAgentSessionAction }) =>
+      apiPost<WebAgentToolResult>(`/api/webagent/tools/${encodeURIComponent(tool)}`, payload),
+  });
+}
+
+// Remote Ops
 export function useRemoteSettings() {
   return useQuery({
     queryKey: ["remote", "settings"],
@@ -1987,6 +2531,515 @@ export function useSaveLocalOpsAgentSessionFile() {
   });
 }
 
+// ViralVideo
+export function useViralVideoOverview() {
+  return useQuery({
+    queryKey: ["viralvideo", "overview"],
+    queryFn: () => apiGet<ViralVideoOverview>("/api/viralvideo/overview"),
+    refetchInterval: 10_000,
+  });
+}
+
+export function useViralVideoScripts(status?: string, ideavaultItemId?: string) {
+  return useQuery({
+    queryKey: ["viralvideo", "scripts", status ?? "", ideavaultItemId ?? ""],
+    queryFn: () => {
+      const q = new URLSearchParams();
+      if (status) q.set("status", status);
+      if (ideavaultItemId) q.set("ideavault_item_id", ideavaultItemId);
+      const suffix = q.toString() ? `?${q.toString()}` : "";
+      return apiGet<ViralVideoScript[]>(`/api/viralvideo/scripts${suffix}`);
+    },
+    refetchInterval: 8_000,
+  });
+}
+
+export function useGenerateViralVideoScript() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: {
+      ideavault_item_id: string;
+      channel_profile_id?: string;
+      generation_params?: Record<string, unknown>;
+      length_seconds?: number;
+      style_preset?: string;
+      tone?: string;
+      voice?: string;
+      research_depth?: string;
+      hook_strength?: string;
+      cta_style?: string;
+      visual_density?: string;
+      slide_count?: number;
+      max_text_per_slide?: number;
+      upload_enabled?: boolean;
+      include_sources?: Record<string, boolean>;
+      compliance?: Record<string, boolean>;
+      style_overrides?: Record<string, unknown>;
+    }) => apiPost<ViralVideoScript>(`/api/ideavault/${payload.ideavault_item_id}/viralvideo/generate`, payload),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: ["viralvideo", "scripts"] });
+      client.invalidateQueries({ queryKey: ["viralvideo", "overview"] });
+    },
+  });
+}
+
+export function useSendIdeaVaultToViralVideoFuture() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: {
+      ideavault_item_id: string;
+      script_id?: string;
+      channel_profile_id?: string;
+      generation_params?: Record<string, unknown>;
+    }) => apiPost<ViralVideoScript>(`/api/ideavault/${payload.ideavault_item_id}/viralvideo/send-to-future`, payload),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: ["viralvideo", "scripts"] });
+      client.invalidateQueries({ queryKey: ["viralvideo", "overview"] });
+    },
+  });
+}
+
+export function useSetViralVideoScriptFuture() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (scriptId: string) => apiPost<ViralVideoScript>(`/api/viralvideo/scripts/${scriptId}/future`),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: ["viralvideo", "scripts"] });
+      client.invalidateQueries({ queryKey: ["viralvideo", "overview"] });
+    },
+  });
+}
+
+export function useSetViralVideoScriptQueue() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (scriptId: string) => apiPost<ViralVideoScript>(`/api/viralvideo/scripts/${scriptId}/queue`),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: ["viralvideo", "scripts"] });
+      client.invalidateQueries({ queryKey: ["viralvideo", "overview"] });
+    },
+  });
+}
+
+export function useDeleteViralVideoScript() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ scriptId, cascade = false }: { scriptId: string; cascade?: boolean }) =>
+      apiDelete<{ ok: boolean }>(`/api/viralvideo/scripts/${scriptId}${cascade ? "?cascade=true" : ""}`),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: ["viralvideo", "scripts"] });
+      client.invalidateQueries({ queryKey: ["viralvideo", "runs"] });
+      client.invalidateQueries({ queryKey: ["viralvideo", "overview"] });
+    },
+  });
+}
+
+export function usePatchViralVideoScript() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ scriptId, payload }: { scriptId: string; payload: Record<string, unknown> }) =>
+      apiPatch<ViralVideoScript>(`/api/viralvideo/scripts/${scriptId}`, payload),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: ["viralvideo", "scripts"] });
+      client.invalidateQueries({ queryKey: ["viralvideo", "runs"] });
+      client.invalidateQueries({ queryKey: ["viralvideo", "overview"] });
+    },
+  });
+}
+
+export function useStartViralVideoScript() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (scriptId: string) => apiPost<ViralVideoRun>(`/api/viralvideo/scripts/${scriptId}/start`),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: ["viralvideo", "runs"] });
+      client.invalidateQueries({ queryKey: ["viralvideo", "scripts"] });
+      client.invalidateQueries({ queryKey: ["viralvideo", "overview"] });
+    },
+  });
+}
+
+export function useStartNextViralVideoQueue() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiPost<{ ok: boolean; run?: ViralVideoRun }>("/api/viralvideo/queue/start-next"),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: ["viralvideo", "runs"] });
+      client.invalidateQueries({ queryKey: ["viralvideo", "scripts"] });
+      client.invalidateQueries({ queryKey: ["viralvideo", "overview"] });
+    },
+  });
+}
+
+export function useViralVideoRuns() {
+  return useQuery({
+    queryKey: ["viralvideo", "runs"],
+    queryFn: () => apiGet<ViralVideoRun[]>("/api/viralvideo/runs"),
+    refetchInterval: 4_000,
+  });
+}
+
+export function useViralVideoRun(runId: string | null) {
+  return useQuery({
+    queryKey: ["viralvideo", "run", runId],
+    queryFn: () => apiGet<ViralVideoRun>(`/api/viralvideo/runs/${runId}`),
+    enabled: Boolean(runId),
+    refetchInterval: runId ? 3_000 : false,
+  });
+}
+
+export function useCancelViralVideoRun() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (runId: string) => apiPost<ViralVideoRun>(`/api/viralvideo/runs/${runId}/cancel`),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: ["viralvideo", "runs"] });
+      client.invalidateQueries({ queryKey: ["viralvideo", "scripts"] });
+      client.invalidateQueries({ queryKey: ["viralvideo", "overview"] });
+    },
+  });
+}
+
+export function useDeleteViralVideoRun() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ runId, deleteFiles = true }: { runId: string; deleteFiles?: boolean }) =>
+      apiDelete<{ ok: boolean }>(`/api/viralvideo/runs/${runId}?delete_files=${deleteFiles ? "true" : "false"}`),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: ["viralvideo", "runs"] });
+      client.invalidateQueries({ queryKey: ["viralvideo", "scripts"] });
+      client.invalidateQueries({ queryKey: ["viralvideo", "overview"] });
+    },
+  });
+}
+
+export function useViralVideoSettings() {
+  return useQuery({
+    queryKey: ["viralvideo", "settings"],
+    queryFn: () => apiGet<Record<string, unknown>>("/api/viralvideo/settings"),
+  });
+}
+
+export function useUpdateViralVideoSettings() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: Record<string, unknown>) => apiPut<Record<string, unknown>>("/api/viralvideo/settings", payload),
+    onSuccess: () => client.invalidateQueries({ queryKey: ["viralvideo", "settings"] }),
+  });
+}
+
+export function useViralVideoAutomationSettings() {
+  return useQuery({
+    queryKey: ["viralvideo", "automation-settings"],
+    queryFn: () => apiGet<ViralVideoAutomationSettings>("/api/viralvideo/automation/settings"),
+  });
+}
+
+export function useUpdateViralVideoAutomationSettings() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: Partial<ViralVideoAutomationSettings>) =>
+      apiPut<ViralVideoAutomationSettings>("/api/viralvideo/automation/settings", payload),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: ["viralvideo", "automation-settings"] });
+      client.invalidateQueries({ queryKey: ["viralvideo", "insights-summary"] });
+      client.invalidateQueries({ queryKey: ["viralvideo", "insights-plan"] });
+    },
+  });
+}
+
+export function useRunViralVideoAutomationNow() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiPost<Record<string, unknown>>("/api/viralvideo/automation/run-now"),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: ["viralvideo", "runs"] });
+      client.invalidateQueries({ queryKey: ["viralvideo", "scripts"] });
+      client.invalidateQueries({ queryKey: ["viralvideo", "overview"] });
+      client.invalidateQueries({ queryKey: ["viralvideo", "insights-summary"] });
+      client.invalidateQueries({ queryKey: ["viralvideo", "insights-posts"] });
+    },
+  });
+}
+
+export function useAnalyzeViralVideoNow() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (dayKey?: string | null) =>
+      apiPost<Record<string, unknown>>("/api/viralvideo/automation/analyze-now", dayKey ? { day_key: dayKey } : {}),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: ["viralvideo", "insights-summary"] });
+      client.invalidateQueries({ queryKey: ["viralvideo", "insights-days"] });
+      client.invalidateQueries({ queryKey: ["viralvideo", "insights-plan"] });
+      client.invalidateQueries({ queryKey: ["viralvideo", "insights-posts"] });
+    },
+  });
+}
+
+export function useViralVideoInsightsSummary() {
+  return useQuery({
+    queryKey: ["viralvideo", "insights-summary"],
+    queryFn: () => apiGet<ViralVideoInsightsSummary>("/api/viralvideo/insights/summary"),
+    refetchInterval: 20_000,
+  });
+}
+
+export function useViralVideoInsightDays(limit = 30) {
+  return useQuery({
+    queryKey: ["viralvideo", "insights-days", limit],
+    queryFn: () => apiGet<ViralVideoInsightDay[]>(`/api/viralvideo/insights/days?limit=${Math.max(1, Math.min(limit, 180))}`),
+    refetchInterval: 30_000,
+  });
+}
+
+export function useViralVideoInsightPosts(dayKey?: string | null) {
+  return useQuery({
+    queryKey: ["viralvideo", "insights-posts", dayKey ?? ""],
+    queryFn: () => {
+      const qs = dayKey ? `?day=${encodeURIComponent(dayKey)}` : "";
+      return apiGet<ViralVideoInsightPost[]>(`/api/viralvideo/insights/posts${qs}`);
+    },
+    refetchInterval: 30_000,
+  });
+}
+
+export function useViralVideoInsightsPlan() {
+  return useQuery({
+    queryKey: ["viralvideo", "insights-plan"],
+    queryFn: () => apiGet<Record<string, unknown>>("/api/viralvideo/insights/plan"),
+    refetchInterval: 30_000,
+  });
+}
+
+export function useViralVideoChannelProfiles() {
+  return useQuery({
+    queryKey: ["viralvideo", "channel-profiles"],
+    queryFn: () => apiGet<ViralVideoChannelProfile[]>("/api/viralvideo/channel-profiles"),
+    refetchInterval: 30_000,
+  });
+}
+
+export function useCreateViralVideoChannelProfile() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: {
+      name: string;
+      creator_type: "vidmaker" | "slidemaker";
+      creator_repo_path?: string;
+      upload_profile_id: string;
+      platform?: string;
+      defaults?: Record<string, unknown>;
+      enabled?: boolean;
+    }) => apiPost<ViralVideoChannelProfile>("/api/viralvideo/channel-profiles", payload),
+    onSuccess: () => client.invalidateQueries({ queryKey: ["viralvideo", "channel-profiles"] }),
+  });
+}
+
+export function usePatchViralVideoChannelProfile() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ profileId, payload }: { profileId: string; payload: Record<string, unknown> }) =>
+      apiPatch<ViralVideoChannelProfile>(`/api/viralvideo/channel-profiles/${profileId}`, payload),
+    onSuccess: () => client.invalidateQueries({ queryKey: ["viralvideo", "channel-profiles"] }),
+  });
+}
+
+export function useDeleteViralVideoChannelProfile() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (profileId: string) => apiDelete<{ ok: boolean }>(`/api/viralvideo/channel-profiles/${profileId}`),
+    onSuccess: () => client.invalidateQueries({ queryKey: ["viralvideo", "channel-profiles"] }),
+  });
+}
+
+export function useSyncViralVideoChannelProfiles() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiPost<{ created: string[]; updated: string[]; found_repos: string[]; count: number }>(
+        "/api/viralvideo/channel-profiles/sync-creators",
+      ),
+    onSuccess: () => client.invalidateQueries({ queryKey: ["viralvideo", "channel-profiles"] }),
+  });
+}
+
+export function useAiVideoFactoryUploadOptions() {
+  return useQuery({
+    queryKey: ["aivideofactory", "upload-options"],
+    queryFn: () => apiGet<AiVideoFactoryUploadOption[]>("/api/aivideofactory/upload-options"),
+    staleTime: 120_000,
+  });
+}
+
+// ViralCreator
+export function useViralCreatorState() {
+  return useQuery({
+    queryKey: ["viralcreator", "state"],
+    queryFn: () => apiGet<ViralCreatorState>("/api/viralcreator/state"),
+    refetchInterval: 15_000,
+  });
+}
+
+export function useViralCreatorChannels() {
+  return useQuery({
+    queryKey: ["viralcreator", "channels"],
+    queryFn: () => apiGet<ViralCreatorChannelOverview[]>("/api/viralcreator/channels"),
+    refetchInterval: 20_000,
+  });
+}
+
+export function useViralCreatorRuns(limit = 100) {
+  return useQuery({
+    queryKey: ["viralcreator", "runs", limit],
+    queryFn: () => apiGet<ViralCreatorOrchestrationRun[]>(`/api/viralcreator/runs?limit=${Math.max(1, Math.min(limit, 500))}`),
+    refetchInterval: 5_000,
+  });
+}
+
+export function useViralCreatorInbox(limit = 120) {
+  return useQuery({
+    queryKey: ["viralcreator", "inbox", limit],
+    queryFn: () => apiGet<ViralCreatorInboxItem[]>(`/api/viralcreator/inbox?limit=${Math.max(1, Math.min(limit, 500))}`),
+    refetchInterval: 10_000,
+  });
+}
+
+export function useCreateViralCreatorInboxItem() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: Record<string, unknown>) => apiPost<ViralCreatorInboxItem>("/api/viralcreator/inbox", payload),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: ["viralcreator", "inbox"] });
+      client.invalidateQueries({ queryKey: ["viralcreator", "state"] });
+    },
+  });
+}
+
+export function useRunViralCreatorResearch() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: Record<string, unknown>) => apiPost<ViralCreatorResearchResult>("/api/viralcreator/research/run", payload),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: ["viralcreator", "state"] });
+      client.invalidateQueries({ queryKey: ["viralcreator", "inbox"] });
+    },
+  });
+}
+
+export function useGenerateViralCreatorCreativeDraft() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: Record<string, unknown>) => apiPost<ViralCreatorCreativeDraft>("/api/viralcreator/creative/generate", payload),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: ["viralcreator", "state"] });
+      client.invalidateQueries({ queryKey: ["viralcreator", "runs"] });
+    },
+  });
+}
+
+export function useIterateViralCreatorRun() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (runId: string) => apiPost<Record<string, unknown>>(`/api/viralcreator/iterate/from-run/${encodeURIComponent(runId)}`, {}),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: ["viralcreator", "inbox"] });
+      client.invalidateQueries({ queryKey: ["viralcreator", "state"] });
+    },
+  });
+}
+
+export function useStartViralCreatorRun() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: Record<string, unknown>) => apiPost<Record<string, unknown>>("/api/viralcreator/runs", payload),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: ["viralcreator", "state"] });
+      client.invalidateQueries({ queryKey: ["viralcreator", "runs"] });
+      client.invalidateQueries({ queryKey: ["viralvideo", "scripts"] });
+      client.invalidateQueries({ queryKey: ["viralvideo", "runs"] });
+      client.invalidateQueries({ queryKey: ["viralvideo", "overview"] });
+    },
+  });
+}
+
+export function useViralCreatorAutonomousState() {
+  return useQuery({
+    queryKey: ["viralcreator", "autonomous", "state"],
+    queryFn: () => apiGet<ViralCreatorAutonomousState>("/api/viralcreator/autonomous/state"),
+    refetchInterval: 15_000,
+  });
+}
+
+export function useViralCreatorAutonomousProfiles() {
+  return useQuery({
+    queryKey: ["viralcreator", "autonomous", "profiles"],
+    queryFn: () => apiGet<ViralCreatorAutonomousProfile[]>("/api/viralcreator/autonomous/profiles"),
+    refetchInterval: 20_000,
+  });
+}
+
+export function useViralCreatorAutonomousHistory(limit = 40) {
+  return useQuery({
+    queryKey: ["viralcreator", "autonomous", "history", limit],
+    queryFn: () => apiGet<ViralCreatorAutonomousHistoryItem[]>(`/api/viralcreator/autonomous/history?limit=${Math.max(1, Math.min(limit, 200))}`),
+    refetchInterval: 15_000,
+  });
+}
+
+export function useCreateViralCreatorAutonomousProfile() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: Record<string, unknown>) => apiPost<ViralCreatorAutonomousProfile>("/api/viralcreator/autonomous/profiles", payload),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: ["viralcreator", "state"] });
+      client.invalidateQueries({ queryKey: ["viralcreator", "autonomous"] });
+    },
+  });
+}
+
+export function useUpdateViralCreatorAutonomousProfile() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ profileId, payload }: { profileId: string; payload: Record<string, unknown> }) =>
+      apiPatch<ViralCreatorAutonomousProfile>(`/api/viralcreator/autonomous/profiles/${encodeURIComponent(profileId)}`, payload),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: ["viralcreator", "state"] });
+      client.invalidateQueries({ queryKey: ["viralcreator", "autonomous"] });
+    },
+  });
+}
+
+export function useRunViralCreatorAutonomousProfileNow() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (profileId: string) => apiPost<Record<string, unknown>>(`/api/viralcreator/autonomous/profiles/${encodeURIComponent(profileId)}/run-now`, {}),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: ["viralcreator", "state"] });
+      client.invalidateQueries({ queryKey: ["viralcreator", "runs"] });
+      client.invalidateQueries({ queryKey: ["viralcreator", "autonomous"] });
+      client.invalidateQueries({ queryKey: ["viralvideo", "scripts"] });
+      client.invalidateQueries({ queryKey: ["viralvideo", "runs"] });
+      client.invalidateQueries({ queryKey: ["viralvideo", "overview"] });
+    },
+  });
+}
+
+export function useViralCreatorDailyReview() {
+  return useQuery({
+    queryKey: ["viralcreator", "daily-review"],
+    queryFn: () => apiGet<Record<string, unknown>>("/api/viralcreator/review/daily"),
+    refetchInterval: 20_000,
+  });
+}
+
+export function useViralCreatorWeeklyReview() {
+  return useQuery({
+    queryKey: ["viralcreator", "weekly-review"],
+    queryFn: () => apiGet<Record<string, unknown>>("/api/viralcreator/review/weekly"),
+    refetchInterval: 30_000,
+  });
+}
+
 export function useFactoryOverview() {
   return useQuery({
     queryKey: ["factory", "overview"],
@@ -2560,6 +3613,197 @@ export function useMemoryCompact() {
   });
 }
 
+export function useDiscordSettings() {
+  return useQuery({
+    queryKey: ["discord", "settings"],
+    queryFn: () => apiGet<DiscordSettings>("/api/discord/settings"),
+  });
+}
+
+export function useSaveDiscordSettings() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: Record<string, unknown>) => apiPost<DiscordSettings>("/api/discord/settings", payload),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: ["discord"] });
+    },
+  });
+}
+
+export function useDiscordStatus() {
+  return useQuery({
+    queryKey: ["discord", "status"],
+    queryFn: () => apiGet<DiscordStatusPayload>("/api/discord/status"),
+    refetchInterval: 12_000,
+  });
+}
+
+export function useDiscordTestConnectivity() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: { include_bridge?: boolean; include_redis?: boolean; include_memory?: boolean }) =>
+      apiPost<Record<string, unknown>>("/api/discord/test", payload),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: ["discord", "status"] });
+    },
+  });
+}
+
+export function useDiscordReindexMemory() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: { dry_run?: boolean }) => apiPost<Record<string, unknown>>("/api/discord/reindex-memory", payload),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: ["discord", "status"] });
+    },
+  });
+}
+
+export function useDiscordMemoryAppend() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: { note: string; kind?: string; relevance?: number; dry_run?: boolean }) =>
+      apiPost<Record<string, unknown>>("/api/discord/memory/append", payload),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: ["discord", "status"] });
+    },
+  });
+}
+
+export function useDiscordDispatchTargets() {
+  return useQuery({
+    queryKey: ["discord", "dispatch-targets"],
+    queryFn: () => apiGet<{ targets: DiscordDispatchTarget[]; summary: Record<string, unknown> }>("/api/discord/dispatch-targets"),
+    refetchInterval: 20_000,
+  });
+}
+
+export function useDiscordSessionBootstrap() {
+  return useMutation({
+    mutationFn: (payload: {
+      user_id: string;
+      guild_id?: string;
+      channel_id?: string;
+      model?: string;
+      temperature?: number;
+      metadata?: Record<string, unknown>;
+    }) => apiPost<Record<string, unknown>>("/api/discord/session/bootstrap", payload),
+  });
+}
+
+export function useDiscordSessionResolve() {
+  return useMutation({
+    mutationFn: (payload: { user_id: string; guild_id?: string; channel_id?: string }) =>
+      apiPost<Record<string, unknown>>("/api/discord/session/resolve", payload),
+  });
+}
+
+export function useDiscordPolicyEvaluate() {
+  return useMutation({
+    mutationFn: (payload: {
+      action_type: string;
+      target?: string;
+      args?: Record<string, unknown>;
+      requester?: Record<string, unknown>;
+    }) => apiPost<Record<string, unknown>>("/api/discord/policy/evaluate", payload),
+  });
+}
+
+export function useDiscordDispatchRequests(params?: { status?: string; limit?: number }) {
+  const qs = new URLSearchParams();
+  if (params?.status) qs.set("status", params.status);
+  qs.set("limit", String(params?.limit ?? 100));
+  return useQuery({
+    queryKey: ["discord", "requests", params ?? {}],
+    queryFn: () => apiGet<{ items: DiscordDispatchRequest[] }>(`/api/discord/requests?${qs.toString()}`),
+    refetchInterval: 8_000,
+  });
+}
+
+export function useDiscordDispatchRequestDetail(requestId: string | null) {
+  return useQuery({
+    queryKey: ["discord", "request", requestId],
+    queryFn: () => apiGet<Record<string, unknown>>(`/api/discord/requests/${encodeURIComponent(String(requestId))}`),
+    enabled: Boolean(requestId),
+    refetchInterval: 8_000,
+  });
+}
+
+export function useDiscordApprovals(params?: { status?: string; limit?: number }) {
+  const qs = new URLSearchParams();
+  if (params?.status) qs.set("status", params.status);
+  qs.set("limit", String(params?.limit ?? 100));
+  return useQuery({
+    queryKey: ["discord", "approvals", params ?? {}],
+    queryFn: () => apiGet<{ items: DiscordApprovalRequest[] }>(`/api/discord/approvals?${qs.toString()}`),
+    refetchInterval: 6_000,
+  });
+}
+
+export function useDiscordDispatch() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: {
+      command?: string;
+      action_type?: string;
+      target?: string;
+      args?: Record<string, unknown>;
+      prompt?: string;
+      requester?: Record<string, unknown>;
+      session?: Record<string, unknown>;
+      metadata?: Record<string, unknown>;
+    }) => apiPost<Record<string, unknown>>("/api/discord/dispatch", payload),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: ["discord", "requests"] });
+      client.invalidateQueries({ queryKey: ["discord", "approvals"] });
+      client.invalidateQueries({ queryKey: ["discord", "status"] });
+    },
+  });
+}
+
+export function useDiscordApprove() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: { dispatch_request_id: string; approver_user_id: string; reason?: string; replay_token: string }) =>
+      apiPost<Record<string, unknown>>("/api/discord/approve", payload),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: ["discord", "requests"] });
+      client.invalidateQueries({ queryKey: ["discord", "approvals"] });
+      client.invalidateQueries({ queryKey: ["discord", "status"] });
+    },
+  });
+}
+
+export function useDiscordReject() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: { dispatch_request_id: string; approver_user_id: string; reason?: string; replay_token: string }) =>
+      apiPost<Record<string, unknown>>("/api/discord/reject", payload),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: ["discord", "requests"] });
+      client.invalidateQueries({ queryKey: ["discord", "approvals"] });
+      client.invalidateQueries({ queryKey: ["discord", "status"] });
+    },
+  });
+}
+
+export function useDiscordWorkers(limit = 100) {
+  return useQuery({
+    queryKey: ["discord", "workers", limit],
+    queryFn: () => apiGet<{ items: DispatchWorkerStatus[] }>(`/api/discord/workers?limit=${limit}`),
+    refetchInterval: 10_000,
+  });
+}
+
+export function useDiscordAudit(auditId: string | null) {
+  return useQuery({
+    queryKey: ["discord", "audit", auditId],
+    queryFn: () => apiGet<Record<string, unknown>>(`/api/discord/audit/${encodeURIComponent(String(auditId))}`),
+    enabled: Boolean(auditId),
+    refetchInterval: 8_000,
+  });
+}
+
 export function useChatSessions(limit = 50) {
   return useQuery({
     queryKey: ["chat", "sessions", limit],
@@ -2626,6 +3870,17 @@ export function useAppendChatMessage(sessionId: string | null) {
   });
 }
 
+export function useAttachDiscordChatSession(sessionId: string | null) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: { guild_id?: string; channel_id?: string; user_id?: string; source_types?: string[] }) =>
+      apiPost<ChatSession>(`/api/chat/sessions/${encodeURIComponent(String(sessionId))}/attach-discord`, payload),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: ["chat", "session", sessionId] });
+      client.invalidateQueries({ queryKey: ["chat", "sessions"] });
+    },
+  });
+}
 
 export function useSyncChatSession(sessionId: string | null) {
   const client = useQueryClient();

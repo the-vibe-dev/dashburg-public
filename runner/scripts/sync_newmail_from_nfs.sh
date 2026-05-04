@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SRC="${NEWMAIL_SOURCE_PATH:-/mnt/nas_ai/shared/NEWMAIL.md}"
+SRC="${NEWMAIL_SOURCE_PATH:-/srv/dashburg/shared/NEWMAIL.md}"
 DEST_HOME="${NEWMAIL_DEST_HOME:-$HOME/NEWMAIL.md}"
 
 if [[ ! -f "$SRC" ]]; then

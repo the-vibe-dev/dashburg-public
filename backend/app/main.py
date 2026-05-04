@@ -11,8 +11,10 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.core import router as core_router
 from app.api.events import attach_router
+from app.api.module_system import router as module_system_router
 from app.core.config import ensure_data_dirs
 from app.db.session import init_db
+from app.module_system import activate_modules, get_installed_keys
 from app.modules.registry import get_modules
 from app.services.sse import SSEBroker
 
@@ -23,10 +25,12 @@ broker = SSEBroker()
 async def lifespan(app: FastAPI):
     ensure_data_dirs()
     init_db()
+    app.state.activated_module_keys = set()
+    activate_modules(app, get_installed_keys())
     yield
 
 
-app = FastAPI(title="Dashgithub API", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="Dashgithub API", version="0.2.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -45,6 +49,7 @@ app.add_middleware(
 )
 
 app.include_router(core_router)
+app.include_router(module_system_router)
 app.include_router(attach_router(broker))
 for module in get_modules():
     app.include_router(module.router)

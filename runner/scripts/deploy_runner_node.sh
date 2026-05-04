@@ -43,7 +43,7 @@ DEFAULT_NODE_LABEL="$(hostname 2>/dev/null || echo Dashburg Node)"
 DEFAULT_NODE_LABEL="${DEFAULT_NODE_LABEL:-Dashburg Node}"
 DEFAULT_LISTEN_PORT="8844"
 DEFAULT_HUB_API="http://hub.example.local:8431"
-DEFAULT_DASHBURG_MAIN_PUBKEY="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEJqa4+7V25fxNBdzJixfH4KycDLBizqnj+Xvd+ABMFT trilobyte@tthub"
+DEFAULT_DASHBURG_MAIN_PUBKEY=""
 
 prompt() {
   local text="$1"
@@ -798,7 +798,7 @@ SUDOERS_RESULT="skipped"
 INSTALL_NODE_EXPORTER_NOW="$(prompt_yes_no 'Install node_exporter on this node now?' 'y')"
 ENROLL_MONITOR_TARGET_NOW="$(prompt_yes_no 'Enroll this node into monitorlxc Prometheus targets?' 'y')"
 MONITOR_HOST="$(prompt 'Monitor host (for Prometheus target enrollment)' 'monitor.example.local')"
-MONITOR_SSH_USER="$(prompt 'Monitor SSH user' 'trilobyte')"
+MONITOR_SSH_USER="$(prompt 'Monitor SSH user' 'dashterm')"
 MONITOR_SSH_KEY_PATH="$(prompt 'Monitor SSH private key path' "$HOME/.ssh/dashburg_remoteops")"
 MONITOR_TARGET_FILE="$(prompt 'Monitor target file path' '~/monitoring-stack/prometheus/targets/linux_nodes.yml')"
 MONITOR_ENROLL_RESULT="skipped"
@@ -830,7 +830,7 @@ if [[ "$USE_HUB_KEYS" == "y" ]]; then
   HUB_HOST_FROM_API="$(extract_host_from_url "$HUB_API")"
   AUTO_FETCH_HUB_TOKEN="$(prompt_yes_no 'Auto-fetch REMOTEOPS_ADMIN_TOKEN from Hub via SSH key?' 'y')"
   if [[ "$AUTO_FETCH_HUB_TOKEN" == "y" ]]; then
-    HUB_SSH_USER="$(prompt 'Hub SSH user for token fetch' 'trilobyte')"
+    HUB_SSH_USER="$(prompt 'Hub SSH user for token fetch' 'dashterm')"
     HUB_SSH_KEY_PATH="$(prompt 'Hub SSH private key path for token fetch' "$HOME/.ssh/dashburg_remoteops")"
     if [[ -f "$HUB_SSH_KEY_PATH" && -n "$HUB_HOST_FROM_API" ]]; then
       HUB_ADMIN_TOKEN="$(fetch_remoteops_admin_token_via_ssh "$HUB_HOST_FROM_API" "$HUB_SSH_USER" "$HUB_SSH_KEY_PATH")"

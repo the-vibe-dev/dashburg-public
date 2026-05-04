@@ -62,7 +62,7 @@ def _parse_recipient(value: str) -> dict[str, str]:
 
 
 def _load_memory() -> tuple[str, str]:
-    nfs = Path("/mnt/nas_ai/shared/MEM.md")
+    nfs = Path("/srv/dashburg/shared/MEM.md")
     if nfs.exists() and nfs.is_file():
         try:
             return ("nfs", nfs.read_text(encoding="utf-8", errors="replace")[:14000])

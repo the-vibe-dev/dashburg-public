@@ -207,3 +207,7 @@ echo "Start commands:"
 echo "- API:      ./scripts/start_dashburg_backend.sh"
 echo "- Runner:   (cd runner && ./.venv/bin/python run.py)"
 echo "- Frontend: ./scripts/start_dashburg_frontend.sh"
+echo
+echo "Optional modules:"
+echo "- UI: open Settings -> Add Modules"
+echo "- CLI: ./scripts/manage_modules.sh list"

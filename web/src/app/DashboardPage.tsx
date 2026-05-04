@@ -12,7 +12,7 @@ import {
   useRemoteNodesHealth,
 } from "../shared/api/hooks";
 import type { ProjectDashboardItem } from "../shared/api/types";
-import { frontendModules } from "./modules";
+import type { FrontendModule } from "../modules/types";
 import { PageHeader } from "../shared/components/ui/page-header";
 import { EmptyState } from "../shared/components/ui/empty-state";
 import { relativeTime } from "../shared/lib/formatters";
@@ -25,7 +25,7 @@ function toneForStatus(status: string): string {
   return "text-muted-foreground";
 }
 
-export function DashboardPage() {
+export function DashboardPage({ modules }: { modules: FrontendModule[] }) {
   const nodesQuery = useRemoteNodesHealth();
   const jobsQuery = useRemoteJobs();
   const mailQuery = useMailCenterOverview();
@@ -66,7 +66,7 @@ export function DashboardPage() {
 
   return (
     <div className="space-y-6 stagger-children">
-      <PageHeader title="Command Center" description="Reduced Dashburg surface for TaskVault, ops control, memory, and orchestration." />
+      <PageHeader title="Command Center" description="Reduced Dashburg surface with installable add-on modules." />
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         {commandCards.map((card) => {
@@ -222,12 +222,12 @@ export function DashboardPage() {
           <div className="mb-4 flex items-center justify-between">
             <div>
               <p className="text-[11px] uppercase tracking-[0.12em] text-muted-foreground">Surface Map</p>
-              <h2 className="text-lg font-semibold text-foreground">Published modules in this repo</h2>
+              <h2 className="text-lg font-semibold text-foreground">Installed modules in this host</h2>
             </div>
-            <a href="/settings" className="text-sm text-primary hover:underline">Open Settings</a>
+            <a href="/settings/modules" className="text-sm text-primary hover:underline">Manage Modules</a>
           </div>
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            {frontendModules.map((mod) => {
+            {modules.map((mod) => {
               const href = mod.cards[0]?.href ?? mod.sidebar.href;
               return (
                 <a key={mod.key} href={href} className="rounded-xl border border-border/70 bg-background/20 p-4 hover:bg-background/30">

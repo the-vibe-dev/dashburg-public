@@ -39,7 +39,7 @@ class JobExecutor:
         self.runner_name = f"runner@{self.node_id}"
 
     def _backup_repo_to_nfs(self, job_id: str, repo_path: Path, cancel_event: threading.Event | None = None) -> dict[str, Any]:
-        mount = Path("/mnt/nas_ai/shared")
+        mount = Path("/srv/dashburg/shared")
         if not mount.exists() or not mount.is_dir():
             return {"ok": False, "reason": "nfs_mount_missing", "path": ""}
         ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")

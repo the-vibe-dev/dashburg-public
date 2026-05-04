@@ -742,7 +742,7 @@ def terminal_launch_payload(session: Session) -> dict[str, Any]:
     settings = ensure_settings(session)
     node_id = settings.preferred_terminal_node_id or "devwork"
     codex_prompt = (
-        'Please load cluster memory from /mnt/nas_ai/shared/MEM.md first when available; if unavailable, fallback to ~/MEM.md, '
+        'Please load cluster memory from /srv/dashburg/shared/MEM.md first when available; if unavailable, fallback to ~/MEM.md, '
         "and use that as host topology memory for this session. "
         "For remote investigations, open ONE persistent SSH session per target host and run multiple commands inside that session; "
         "avoid one-off ssh command invocations unless necessary. Before finishing any remote investigation, write two markdown files "

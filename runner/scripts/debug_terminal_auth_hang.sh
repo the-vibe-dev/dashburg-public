@@ -27,7 +27,7 @@ watch_mode() {
 }
 
 test_mode() {
-  ssh_user="${1:-trilobyte}"
+  ssh_user="${1:-dashterm}"
   pubkey_path="${2:-$HOME/.ssh/dashburg_remoteops.pub}"
 
   if [[ ! -f "${pubkey_path}" ]]; then
@@ -56,7 +56,7 @@ case "${mode}" in
     watch_mode
     ;;
   test)
-    test_mode "${2:-trilobyte}" "${3:-$HOME/.ssh/dashburg_remoteops.pub}"
+    test_mode "${2:-dashterm}" "${3:-$HOME/.ssh/dashburg_remoteops.pub}"
     ;;
   *)
     echo "Usage:"

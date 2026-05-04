@@ -24,8 +24,8 @@ export type FrontendModule = {
   sidebar: SidebarItemDef;
   cards: DashboardCardDef[];
   routes: RouteDef[];
-  /** Lucide icon component for sidebar + dashboard cards */
   icon?: ElementType;
-  /** Which sidebar section this module belongs to */
   section?: SidebarSection;
+  optional?: boolean;
+  packageKey?: string;
 };

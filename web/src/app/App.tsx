@@ -2,10 +2,12 @@ import { Suspense, useMemo, useState } from "react";
 import type { ElementType } from "react";
 import { Link, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { ChevronLeft, ChevronRight, LayoutDashboard, Moon, Sun } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
 
 import { DashboardPage } from "./DashboardPage";
-import { frontendModules } from "./modules";
+import { resolveFrontendModules } from "./modules";
 import { useDashburgSSE } from "../shared/api/hooks";
+import { apiGet } from "../shared/api/client";
 import { useTheme } from "./ThemeContext";
 import type { FrontendModule, SidebarSection } from "../modules/types";
 import { Skeleton } from "../shared/components/ui/skeleton";
@@ -26,6 +28,16 @@ export function App() {
   const location = useLocation();
   const { theme, toggleTheme } = useTheme();
   const [collapsed, setCollapsed] = useState<boolean>(() => localStorage.getItem("dashgithub-sidebar-collapsed") === "true");
+  const installedQuery = useQuery({
+    queryKey: ["module-system", "installed"],
+    queryFn: () => apiGet<{ installed: string[] }>("/api/module-system/installed"),
+    staleTime: 10_000,
+  });
+
+  const frontendModules = useMemo(
+    () => resolveFrontendModules(installedQuery.data?.installed ?? []),
+    [installedQuery.data?.installed],
+  );
 
   const groupedModules = useMemo(() => {
     const groups = new Map<SidebarSection, FrontendModule[]>();
@@ -35,7 +47,7 @@ export function App() {
       groups.get(section)?.push(mod);
     }
     return groups;
-  }, []);
+  }, [frontendModules]);
 
   const sidebarWidth = collapsed ? SIDEBAR_NARROW : SIDEBAR_WIDE;
   const isActiveRoute = (href: string) => location.pathname === href || location.pathname.startsWith(`${href}/`);
@@ -109,7 +121,7 @@ export function App() {
       <main className="min-h-screen min-w-0 p-4 md:p-6" style={{ marginLeft: sidebarWidth }}>
         <div className="mx-auto max-w-[1600px]">
           <Routes>
-            <Route path="/" element={<Suspense fallback={<RouteLoadingFallback />}><DashboardPage /></Suspense>} />
+            <Route path="/" element={<Suspense fallback={<RouteLoadingFallback />}><DashboardPage modules={frontendModules} /></Suspense>} />
             {frontendModules.flatMap((m) => m.routes).map((r) => (
               <Route key={r.path} path={r.path} element={<Suspense fallback={<RouteLoadingFallback />}>{r.element}</Suspense>} />
             ))}

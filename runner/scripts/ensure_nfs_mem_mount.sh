@@ -4,9 +4,9 @@ set -euo pipefail
 NFS_HOST="${NFS_HOST:-nas.example.local}"
 NFS_EXPORT_ROOT="${NFS_EXPORT_ROOT:-/volume1/AI}"
 NFS_EXPORT_SHARED="${NFS_EXPORT_SHARED:-/volume1/AI/shared}"
-MOUNT_ROOT="${MOUNT_ROOT:-/mnt/nas_ai}"
+MOUNT_ROOT="${MOUNT_ROOT:-/srv/dashburg}"
 MOUNT_SHARED="${MOUNT_SHARED:-$MOUNT_ROOT/shared}"
-RAW_SHARED_MOUNT="${RAW_SHARED_MOUNT:-/mnt/nas_ai_raw}"
+RAW_SHARED_MOUNT="${RAW_SHARED_MOUNT:-/srv/dashburg_raw}"
 MEM_FILE_NAME="${MEM_FILE_NAME:-MEM.md}"
 
 FSTAB_MAIN_LINE="${NFS_HOST}:${NFS_EXPORT_ROOT} ${MOUNT_ROOT} nfs defaults,_netdev,nofail,x-systemd.automount,x-systemd.requires=network-online.target 0 0"
