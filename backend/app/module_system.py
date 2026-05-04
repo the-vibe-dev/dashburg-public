@@ -48,6 +48,7 @@ class ModuleManifest:
     backend_import: str
     frontend_key: str
     frontend_export: str
+    runtime: dict[str, Any]
     module_dir: Path
 
     @property
@@ -108,6 +109,7 @@ def discover_manifests() -> dict[str, ModuleManifest]:
             backend_import=str(backend.get("import") or OPTIONAL_MODULE_IMPORTS.get(key, "")),
             frontend_key=str(frontend.get("key") or key),
             frontend_export=str(frontend.get("export") or ""),
+            runtime=raw.get("runtime") if isinstance(raw.get("runtime"), dict) else {},
             module_dir=path.parent,
         )
     return out
@@ -175,6 +177,10 @@ def validate_module(key: str, manifests: dict[str, ModuleManifest] | None = None
     missing_modules = [dep for dep in manifest.module_dependencies if dep not in installed]
     missing_core = [cap for cap in manifest.core_capabilities if cap not in CORE_CAPABILITIES]
     files_dir_ok = manifest.files_dir.exists()
+    runtime_service_dir = str(manifest.runtime.get("service_dir") or "").strip()
+    runtime_service_ok = True
+    if runtime_service_dir:
+        runtime_service_ok = (manifest.files_dir / runtime_service_dir).exists()
     backend_import_ok = False
     backend_error = ""
     try:
@@ -186,7 +192,7 @@ def validate_module(key: str, manifests: dict[str, ModuleManifest] | None = None
     frontend_exists = (frontend_dir / manifest.frontend_key.replace("-", "")).exists() or any(
         frontend_dir.rglob("module.tsx")
     )
-    ok = files_dir_ok and backend_import_ok and not missing_modules and not missing_core and frontend_exists
+    ok = files_dir_ok and runtime_service_ok and backend_import_ok and not missing_modules and not missing_core and frontend_exists
     return {
         "ok": ok,
         "key": key,
@@ -198,6 +204,15 @@ def validate_module(key: str, manifests: dict[str, ModuleManifest] | None = None
         "backend_import_ok": backend_import_ok,
         "backend_error": backend_error,
         "frontend_entry_ok": frontend_exists,
+        "runtime": {
+            "mode": str(manifest.runtime.get("mode") or "host-only"),
+            "service_dir": runtime_service_dir,
+            "service_dir_ok": runtime_service_ok,
+            "default_port": manifest.runtime.get("default_port"),
+            "start_command": manifest.runtime.get("start_command"),
+            "env_file": manifest.runtime.get("env_file"),
+            "notes": manifest.runtime.get("notes"),
+        },
         "smoke": {
             "solo_harness": bool(files_dir_ok and backend_import_ok),
             "host_install": bool(backend_import_ok and not missing_modules and not missing_core),
@@ -218,6 +233,7 @@ def catalog_payload() -> list[dict[str, Any]]:
                 "version": manifest.version,
                 "description": manifest.description,
                 "installed": key in installed,
+                "runtime": manifest.runtime,
                 "dependencies": {
                     "modules": manifest.module_dependencies,
                     "core_capabilities": manifest.core_capabilities,

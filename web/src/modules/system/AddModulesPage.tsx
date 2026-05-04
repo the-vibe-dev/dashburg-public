@@ -12,6 +12,14 @@ type ModuleCatalogItem = {
   version: string;
   description: string;
   installed: boolean;
+  runtime?: {
+    mode?: string;
+    service_dir?: string;
+    default_port?: number;
+    start_command?: string;
+    env_file?: string;
+    notes?: string;
+  };
   dependencies: {
     modules: string[];
     core_capabilities: string[];
@@ -25,6 +33,15 @@ type ModuleCatalogItem = {
     frontend_entry_ok: boolean;
     missing_modules: string[];
     missing_core_capabilities: string[];
+    runtime?: {
+      mode?: string;
+      service_dir?: string;
+      service_dir_ok?: boolean;
+      default_port?: number;
+      start_command?: string;
+      env_file?: string;
+      notes?: string;
+    };
     smoke?: {
       solo_harness: boolean;
       host_install: boolean;
@@ -105,10 +122,23 @@ export function AddModulesPage() {
                       <p>{validation.ok ? "Ready" : "Needs attention"}</p>
                     </div>
                     <div>
+                      <p className="font-medium text-foreground">Runtime mode</p>
+                      <p>{item.runtime?.mode ?? validation.runtime?.mode ?? "host-only"}</p>
+                    </div>
+                    <div>
                       <p className="font-medium text-foreground">Solo smoke</p>
                       <p>{validation.smoke?.solo_harness ? "Pass" : "Fail"}</p>
                     </div>
                   </div>
+
+                  {(item.runtime?.service_dir || validation.runtime?.service_dir || item.runtime?.start_command || validation.runtime?.start_command) ? (
+                    <div className="rounded-lg border border-border/70 bg-background/20 p-3 text-xs text-muted-foreground space-y-1">
+                      <p><span className="font-medium text-foreground">Service dir:</span> {item.runtime?.service_dir || validation.runtime?.service_dir || "-"}</p>
+                      <p><span className="font-medium text-foreground">Default port:</span> {String(item.runtime?.default_port ?? validation.runtime?.default_port ?? "-")}</p>
+                      <p><span className="font-medium text-foreground">Start:</span> {item.runtime?.start_command || validation.runtime?.start_command || "-"}</p>
+                      <p><span className="font-medium text-foreground">Notes:</span> {item.runtime?.notes || validation.runtime?.notes || "-"}</p>
+                    </div>
+                  ) : null}
 
                   {validation.backend_error ? (
                     <div className="rounded-lg border border-danger/30 bg-danger/5 p-3 text-xs text-danger whitespace-pre-wrap">{validation.backend_error}</div>

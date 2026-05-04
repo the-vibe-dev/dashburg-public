@@ -123,3 +123,4 @@ cd ~/apps/dashgithub
 - `docs/NODEHEALTH.md`
 - `docs/WINDOWS_RUNNER.md`
 - `docs/RASPBERRY_PI_RUNNER.md`
+- `docs/MODULES.md`
