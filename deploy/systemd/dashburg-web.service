@@ -1,0 +1,16 @@
+[Unit]
+Description=Dashburg Web
+After=network-online.target dashburg-api.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/apps/dashburg/web
+EnvironmentFile=%h/apps/dashburg/.env
+ExecStart=%h/apps/dashburg/scripts/start_dashburg_frontend.sh
+Restart=always
+RestartSec=5
+TimeoutStopSec=20
+
+[Install]
+WantedBy=default.target

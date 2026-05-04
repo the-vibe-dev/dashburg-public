@@ -1,0 +1,5 @@
+# Allow dashburg-runner to restart only explicit services.
+# Replace service names to match your host.
+dashburg-runner ALL=(root) NOPASSWD: /bin/systemctl restart dashburg-api, /bin/systemctl restart topic-runner
+# Optional apt tasks (only if apt_upgrade_enabled=true):
+# dashburg-runner ALL=(root) NOPASSWD: /usr/bin/apt-get update, /usr/bin/apt-get -y upgrade

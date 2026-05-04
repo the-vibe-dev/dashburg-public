@@ -1,0 +1,22 @@
+servers:
+  - id: hub
+    name: Hub Runner
+    base_url: http://127.0.0.1:8444
+    key_id: hub-main
+    secret_env: DASHGITHUB_RUNNER_SECRET_HUB
+    codex_enabled: true
+    supports_terminal: true
+    tags: [hub, primary]
+    repos:
+      - /srv/repos/dashgithub
+
+  - id: worker-1
+    name: Worker Node 1
+    base_url: http://runner-1.example.local:8444
+    key_id: hub-main
+    secret_env: DASHGITHUB_RUNNER_SECRET_WORKER1
+    codex_enabled: true
+    supports_terminal: false
+    tags: [worker]
+    repos:
+      - /srv/repos/dashgithub

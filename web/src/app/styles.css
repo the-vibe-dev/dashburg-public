@@ -1,0 +1,279 @@
+@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=IBM+Plex+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Dark theme (default) ───────────────────────────── */
+:root,
+[data-theme="dark"] {
+  --background: 235 16% 6%;
+  --foreground: 38 12% 92%;
+  --card: 235 14% 9%;
+  --card-hover: 235 14% 11%;
+  --card-foreground: 38 12% 92%;
+  --primary: 38 82% 54%;
+  --primary-foreground: 235 16% 6%;
+  --border: 235 10% 15%;
+  --input: 235 10% 11%;
+  --ring: 38 82% 54%;
+  --muted-foreground: 235 8% 50%;
+  --success: 145 58% 48%;
+  --warning: 28 88% 58%;
+  --danger: 0 70% 62%;
+  --cyan: 192 78% 56%;
+  --sidebar-bg: 235 18% 4%;
+  --sidebar-border: 235 12% 11%;
+  --shadow: 0 2px 8px rgba(0,0,0,0.5), 0 12px 32px rgba(0,0,0,0.3);
+}
+
+/* ── Light theme ────────────────────────────────────── */
+[data-theme="light"] {
+  --background: 210 18% 95%;
+  --foreground: 220 25% 10%;
+  --card: 0 0% 100%;
+  --card-hover: 210 18% 97%;
+  --card-foreground: 220 25% 10%;
+  --primary: 38 82% 42%;
+  --primary-foreground: 0 0% 100%;
+  --border: 214 18% 86%;
+  --input: 214 15% 97%;
+  --ring: 38 82% 42%;
+  --muted-foreground: 220 12% 48%;
+  --success: 142 55% 36%;
+  --warning: 28 80% 44%;
+  --danger: 0 65% 50%;
+  --cyan: 195 72% 38%;
+  --sidebar-bg: 222 22% 10%;
+  --sidebar-border: 222 18% 17%;
+  --shadow: 0 1px 3px rgba(0,0,0,0.07), 0 8px 24px rgba(0,0,0,0.05);
+}
+
+/* ── Base ───────────────────────────────────────────── */
+
+html {
+  font-size: 15px; /* Bigger base — Tailwind's text-sm becomes readable */
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  color: hsl(var(--foreground));
+  background-color: hsl(var(--background));
+  background-image:
+    radial-gradient(ellipse 70% 50% at 0% 0%, hsl(var(--primary) / 0.06) 0%, transparent 100%),
+    radial-gradient(ellipse 50% 40% at 100% 100%, hsl(var(--cyan) / 0.04) 0%, transparent 100%);
+  font-family: "IBM Plex Sans", system-ui, sans-serif;
+  line-height: 1.6;
+  transition: background-color 0.25s ease, color 0.25s ease;
+}
+
+@layer base {
+  * {
+    border-color: hsl(var(--border));
+  }
+
+  /* Only animate during theme transitions — applied briefly by ThemeContext */
+  .theme-transitioning,
+  .theme-transitioning * {
+    transition: border-color 0.25s ease, background-color 0.25s ease, color 0.25s ease !important;
+  }
+
+  ::selection {
+    background: hsl(var(--primary) / 0.25);
+    color: hsl(var(--foreground));
+  }
+
+  ::-webkit-scrollbar { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: hsl(var(--border)); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: hsl(var(--muted-foreground) / 0.5); }
+}
+
+/* ── Animations ─────────────────────────────────────── */
+
+@keyframes livepulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.75); }
+}
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.live-dot {
+  display: inline-block;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background-color: hsl(var(--cyan));
+  box-shadow: 0 0 8px hsl(var(--cyan) / 0.6);
+  animation: livepulse 1.8s ease-in-out infinite;
+  flex-shrink: 0;
+}
+
+.live-dot-success {
+  background-color: hsl(var(--success));
+  box-shadow: 0 0 8px hsl(var(--success) / 0.6);
+}
+
+.animate-fade-up { animation: fadeUp 0.35s ease forwards; }
+
+.stagger-children > * { animation: fadeUp 0.4s ease both; }
+.stagger-children > *:nth-child(1) { animation-delay: 0ms; }
+.stagger-children > *:nth-child(2) { animation-delay: 70ms; }
+.stagger-children > *:nth-child(3) { animation-delay: 140ms; }
+.stagger-children > *:nth-child(4) { animation-delay: 210ms; }
+.stagger-children > *:nth-child(5) { animation-delay: 280ms; }
+.stagger-children > *:nth-child(n+6) { animation-delay: 350ms; }
+
+/* ── Skeleton pulse ──────────────────────────────── */
+
+@keyframes skeletonPulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.15; }
+}
+
+.animate-skeleton {
+  animation: skeletonPulse 1.6s ease-in-out infinite;
+}
+
+/* ── Toast slide-in ──────────────────────────────── */
+
+@keyframes toastIn {
+  from { opacity: 0; transform: translateX(24px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+.animate-toast-in {
+  animation: toastIn 0.25s ease forwards;
+}
+
+/* ── Card hover lift ─────────────────────────────── */
+
+.card-hover-lift {
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+}
+
+.card-hover-lift:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+}
+
+/* ── Table row hover (theme-aware) ───────────────── */
+
+.row-hover:hover {
+  background-color: hsl(var(--primary) / 0.04);
+}
+
+/* ── Sidebar section label ───────────────────────── */
+
+.sidebar-section-label {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.2);
+  padding: 10px 12px 4px;
+  line-height: 1;
+}
+
+/* ── Sidebar ────────────────────────────────────────── */
+
+.sidebar {
+  background-color: hsl(var(--sidebar-bg));
+  border-right: 1px solid hsl(var(--sidebar-border));
+  position: fixed;
+  top: 0; left: 0; bottom: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transition: width 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.sidebar-label {
+  transition: opacity 0.15s ease, max-width 0.22s ease;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.sidebar-expanded .sidebar-label { opacity: 1; max-width: 160px; }
+.sidebar-collapsed .sidebar-label { opacity: 0; max-width: 0; }
+
+[data-theme="light"] .sidebar-nav-link { color: rgba(255,255,255,0.55); }
+[data-theme="light"] .sidebar-nav-link:hover,
+[data-theme="light"] .sidebar-nav-link.active { color: rgba(255,255,255,0.95); }
+
+/* ── Terminal Layout ───────────────────────────────── */
+
+.terminal-host,
+.terminalHost {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+}
+
+.terminal-viewport,
+.terminalViewport {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.terminalCard {
+  overflow: hidden;
+  border-radius: 0.5rem;
+  border: 1px solid hsl(var(--border));
+  background: rgba(0, 0, 0, 0.9);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.02);
+}
+
+.colFlexMin0 {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.flex1Min0 {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.localops-layout {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: clamp(260px, 22vw, 320px) minmax(640px, 1fr) clamp(220px, 18vw, 320px);
+}
+
+.localops-workspace-panel {
+  min-width: 0;
+}
+
+@media (max-width: 1279px) {
+  .localops-layout {
+    grid-template-columns: clamp(240px, 20vw, 300px) minmax(560px, 1fr) clamp(200px, 15vw, 240px);
+  }
+}
+
+@media (max-width: 1019px) {
+  .localops-layout {
+    grid-template-columns: clamp(240px, 34vw, 300px) minmax(0, 1fr);
+  }
+
+  .localops-workspace-panel {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 779px) {
+  .localops-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .localops-workspace-panel {
+    grid-column: auto;
+  }
+}

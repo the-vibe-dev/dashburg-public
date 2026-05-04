@@ -1,0 +1,22 @@
+[Unit]
+Description=Dashburg Runner
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=dashburg-runner
+Group=dashburg-runner
+WorkingDirectory=/opt/dashburg-runner
+Environment=RUNNER_CONFIG=/etc/dashburg-runner/config.yaml
+EnvironmentFile=-/etc/dashburg-runner/webagent.env
+ExecStart=/opt/dashburg-runner/.venv/bin/python /opt/dashburg-runner/run.py
+Restart=always
+RestartSec=2
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/var/lib/dashburg-runner /var/log
+
+[Install]
+WantedBy=multi-user.target

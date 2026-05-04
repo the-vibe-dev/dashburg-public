@@ -1,0 +1,16 @@
+[Unit]
+Description=Dashburg API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/apps/dashburg/backend
+EnvironmentFile=%h/apps/dashburg/.env
+ExecStart=%h/apps/dashburg/scripts/start_dashburg_backend.sh
+Restart=always
+RestartSec=5
+TimeoutStopSec=20
+
+[Install]
+WantedBy=default.target
