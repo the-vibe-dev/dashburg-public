@@ -75,6 +75,11 @@ export function AddModulesPage() {
     onSuccess: refresh,
   });
 
+  const runtimeBootstrapAllMutation = useMutation({
+    mutationFn: () => apiPost("/api/module-system/runtime/bootstrap-all", {}),
+    onSuccess: refresh,
+  });
+
   const runtimeInstallServiceMutation = useMutation({
     mutationFn: (key: string) => apiPost("/api/module-system/runtime/install-service", { key }),
   });
@@ -103,10 +108,15 @@ export function AddModulesPage() {
           <CardTitle>Module Catalog</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" onClick={() => runtimeBootstrapAllMutation.mutate()} disabled={runtimeBootstrapAllMutation.isPending}>
+              Bootstrap All Installed Runtimes
+            </Button>
+          </div>
           <div className="grid gap-3 lg:grid-cols-2">
             {items.map((item) => {
               const validation = item.validation;
-              const busy = installMutation.isPending || uninstallMutation.isPending || validateMutation.isPending || runtimeBootstrapMutation.isPending || runtimeInstallServiceMutation.isPending || runtimeStatusMutation.isPending;
+              const busy = installMutation.isPending || uninstallMutation.isPending || validateMutation.isPending || runtimeBootstrapMutation.isPending || runtimeBootstrapAllMutation.isPending || runtimeInstallServiceMutation.isPending || runtimeStatusMutation.isPending;
               return (
                 <div key={item.key} className="rounded-xl border border-border/70 bg-background/20 p-4 space-y-3">
                   <div className="flex items-start justify-between gap-3">
@@ -212,6 +222,19 @@ export function AddModulesPage() {
           <CardContent>
             <pre className="overflow-x-auto rounded-xl border border-border/70 bg-background/20 p-4 text-xs text-muted-foreground">
               {JSON.stringify(runtimeBootstrapMutation.data, null, 2)}
+            </pre>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {runtimeBootstrapAllMutation.data ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Last Bulk Runtime Bootstrap</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <pre className="overflow-x-auto rounded-xl border border-border/70 bg-background/20 p-4 text-xs text-muted-foreground">
+              {JSON.stringify(runtimeBootstrapAllMutation.data, null, 2)}
             </pre>
           </CardContent>
         </Card>

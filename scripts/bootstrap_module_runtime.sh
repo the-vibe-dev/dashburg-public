@@ -25,27 +25,7 @@ bootstrap_one() {
 }
 
 if [[ "$1" == "all" ]]; then
-  mapfile -t keys < <(
-    DASHGITHUB_ROOT="$ROOT" "$ROOT/backend/.venv/bin/python" - <<'PY'
-import os
-import sys
-
-from pathlib import Path
-
-root = Path(os.environ["DASHGITHUB_ROOT"])
-sys.path.insert(0, str(root / "backend"))
-from app.module_system import catalog_payload  # noqa: E402
-
-for item in catalog_payload():
-    runtime = item.get("runtime") or {}
-    if item.get("installed") and runtime.get("mode") == "bundled-local-service":
-        print(item["key"])
-PY
-  )
-  if [[ ${#keys[@]} -eq 0 ]]; then
-    echo "No installed bundled-local-service modules found."
-    exit 0
-  fi
+  exec "$ROOT/scripts/manage_modules.sh" runtime-bootstrap-all
 else
   keys=("$@")
 fi

@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 
 from app.module_system import (
     activate_modules,
+    bootstrap_all_runtimes,
     bootstrap_runtime,
     catalog_payload,
     get_installed_keys,
@@ -90,6 +91,11 @@ def post_runtime_stop(payload: ModuleRequest) -> dict[str, Any]:
 @router.post("/runtime/bootstrap")
 def post_runtime_bootstrap(payload: ModuleRequest) -> dict[str, Any]:
     return bootstrap_runtime(payload.key)
+
+
+@router.post("/runtime/bootstrap-all")
+def post_runtime_bootstrap_all() -> dict[str, Any]:
+    return bootstrap_all_runtimes()
 
 
 @router.post("/runtime/install-service")

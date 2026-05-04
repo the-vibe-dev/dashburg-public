@@ -11,6 +11,7 @@ BACKEND_ROOT = ROOT / "backend"
 sys.path.insert(0, str(BACKEND_ROOT))
 
 from app.module_system import (  # noqa: E402
+    bootstrap_all_runtimes,
     bootstrap_runtime,
     catalog_payload,
     install_modules,
@@ -60,6 +61,7 @@ def main() -> int:
     runtime_health_parser.add_argument("key")
     runtime_bootstrap_parser = sub.add_parser("runtime-bootstrap", help="Install and start bundled local runtime for a module")
     runtime_bootstrap_parser.add_argument("key")
+    sub.add_parser("runtime-bootstrap-all", help="Install and start all installed bundled local runtimes")
     runtime_service_install_parser = sub.add_parser("runtime-install-service", help="Install a user systemd service for a module runtime")
     runtime_service_install_parser.add_argument("key")
     runtime_service_start_parser = sub.add_parser("runtime-start-service", help="Start a user systemd service for a module runtime")
@@ -91,6 +93,8 @@ def main() -> int:
         return _print(runtime_health(manifests[args.key]))
     if args.command == "runtime-bootstrap":
         return _print(bootstrap_runtime(args.key))
+    if args.command == "runtime-bootstrap-all":
+        return _print(bootstrap_all_runtimes())
     if args.command == "runtime-install-service":
         return _print(install_runtime_service(args.key))
     if args.command == "runtime-start-service":

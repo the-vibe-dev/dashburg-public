@@ -486,6 +486,32 @@ def bootstrap_runtime(key: str, manifests: dict[str, ModuleManifest] | None = No
     return {"ok": bool(start_result.get("ok")), "key": key, "step": "direct", "install": install_result, "service": service_result, "start": start_result, "health": health_result}
 
 
+def installed_bundled_runtime_keys(manifests: dict[str, ModuleManifest] | None = None) -> list[str]:
+    catalog = manifests or discover_manifests()
+    installed = set(get_installed_keys())
+    keys: list[str] = []
+    for key in sorted(installed):
+        manifest = catalog.get(key)
+        if not manifest:
+            continue
+        if str(manifest.runtime.get("mode") or "host-only") == "bundled-local-service":
+            keys.append(key)
+    return keys
+
+
+def bootstrap_all_runtimes(manifests: dict[str, ModuleManifest] | None = None) -> dict[str, Any]:
+    catalog = manifests or discover_manifests()
+    keys = installed_bundled_runtime_keys(catalog)
+    results: list[dict[str, Any]] = []
+    ok = True
+    for key in keys:
+        result = bootstrap_runtime(key, catalog)
+        results.append(result)
+        if not result.get("ok"):
+            ok = False
+    return {"ok": ok, "keys": keys, "results": results}
+
+
 def validate_module(key: str, manifests: dict[str, ModuleManifest] | None = None) -> dict[str, Any]:
     catalog = manifests or discover_manifests()
     manifest = catalog.get(key)

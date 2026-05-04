@@ -86,6 +86,7 @@ Bootstrap a bundled local runtime:
 ```bash
 ./scripts/bootstrap_module_runtime.sh topic-insights
 ./scripts/bootstrap_module_runtime.sh trends-researcher
+./scripts/bootstrap_module_runtime.sh all
 ```
 
 Install a user systemd service for a module runtime:
@@ -136,3 +137,4 @@ cd ~/apps/dashgithub
 - `docs/WINDOWS_RUNNER.md`
 - `docs/RASPBERRY_PI_RUNNER.md`
 - `docs/MODULES.md`
+- `docs/PUBLIC_INSTALL.md`
