@@ -6,6 +6,7 @@ ENV_EXAMPLE="$ROOT_DIR/.env.example"
 ENV_FILE="$ROOT_DIR/.env"
 RUNNER_EXAMPLE="$ROOT_DIR/runner/config.example.yaml"
 RUNNER_CONFIG="$ROOT_DIR/runner/config.yaml"
+MODULES_DIR="$(cd "$ROOT_DIR/.." && pwd)/dashburg-modules"
 
 prompt() {
   local label="$1"
@@ -80,12 +81,20 @@ PY
 
 echo "Dashgithub guided install"
 echo "Repository root: $ROOT_DIR"
+echo "Expected module-pack repo: $MODULES_DIR"
 
 require_cmd python3
 require_cmd npm
 
 if [[ ! -f "$ENV_EXAMPLE" ]]; then
   echo "Missing $ENV_EXAMPLE"
+  exit 1
+fi
+
+if [[ ! -d "$MODULES_DIR" ]]; then
+  echo "Missing module-pack repo at $MODULES_DIR"
+  echo "Clone it first:"
+  echo "  git clone https://github.com/the-vibe-dev/dashburg-modules.git $MODULES_DIR"
   exit 1
 fi
 
@@ -211,3 +220,4 @@ echo
 echo "Optional modules:"
 echo "- UI: open Settings -> Add Modules"
 echo "- CLI: ./scripts/manage_modules.sh list"
+echo "- Module repo: $MODULES_DIR"

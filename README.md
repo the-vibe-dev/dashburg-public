@@ -38,7 +38,12 @@ Packaged modules:
 - Frontend: `4174`
 
 ## Setup
+Clone both repos side by side:
 ```bash
+cd ~/apps
+git clone https://github.com/the-vibe-dev/dashburg-public.git dashgithub
+git clone https://github.com/the-vibe-dev/dashburg-modules.git dashburg-modules
+
 cd ~/apps/dashgithub
 ./scripts/install_dashgithub.sh
 ```
@@ -77,10 +82,12 @@ Validate a module:
 ./scripts/manage_modules.sh validate ideavault
 ```
 
-Optional module packs live in:
+Optional module packs must live in the sibling path used by the host module manager:
 ```bash
 ~/apps/dashburg-modules
 ```
+
+If you cloned to a different location, either move the repo or adjust the module manager path in [`module_system.py`](/home/trilobyte/apps/dashgithub/backend/app/module_system.py).
 
 ## Start For Review
 API:
