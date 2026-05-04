@@ -2,7 +2,13 @@ from __future__ import annotations
 
 import importlib
 import json
+import os
+import shlex
 import shutil
+import signal
+import subprocess
+import urllib.error
+import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -12,6 +18,8 @@ from app.modules.base import BackendModule
 HOST_ROOT = Path(__file__).resolve().parents[2]
 MODULE_PACKS_ROOT = HOST_ROOT.parent / "dashburg-modules"
 STATE_PATH = HOST_ROOT / "data" / "module-system" / "installed.json"
+RUNTIME_PID_DIR = HOST_ROOT / "data" / "module-system" / "pids"
+RUNTIME_LOG_DIR = HOST_ROOT / "data" / "module-system" / "logs"
 
 CORE_CAPABILITIES = {
     "projects",
@@ -54,6 +62,15 @@ class ModuleManifest:
     @property
     def files_dir(self) -> Path:
         return self.module_dir / "files"
+
+
+@dataclass
+class RuntimeHealthResult:
+    ok: bool
+    status: str
+    url: str
+    detail: str
+    payload: dict[str, Any] | None
 
 
 def _read_json(path: Path, fallback: Any) -> Any:
@@ -168,6 +185,307 @@ def import_backend_module(key: str, manifests: dict[str, ModuleManifest] | None 
     return symbol
 
 
+def runtime_host_dir(manifest: ModuleManifest) -> Path | None:
+    service_dir = str(manifest.runtime.get("service_dir") or "").strip()
+    if not service_dir:
+        return None
+    return HOST_ROOT / service_dir
+
+
+def runtime_env_file(manifest: ModuleManifest) -> Path | None:
+    host_dir = runtime_host_dir(manifest)
+    env_name = str(manifest.runtime.get("env_file") or "").strip()
+    if not host_dir or not env_name:
+        return None
+    return host_dir / env_name
+
+
+def runtime_example_env_file(manifest: ModuleManifest) -> Path | None:
+    env_path = runtime_env_file(manifest)
+    if not env_path:
+        return None
+    return env_path.with_name(f"{env_path.name}.example")
+
+
+def runtime_install_command(manifest: ModuleManifest) -> str:
+    explicit = str(manifest.runtime.get("install_command") or "").strip()
+    if explicit:
+        return explicit
+    host_dir = runtime_host_dir(manifest)
+    if not host_dir:
+        return ""
+    if (host_dir / "pyproject.toml").exists():
+        return "pip install -e .[dev]"
+    if (host_dir / "requirements.txt").exists():
+        return "pip install -r requirements.txt"
+    return ""
+
+
+def runtime_post_install(manifest: ModuleManifest) -> list[str]:
+    rows = manifest.runtime.get("post_install")
+    if isinstance(rows, list):
+        return [str(item).strip() for item in rows if str(item).strip()]
+    return []
+
+
+def runtime_health_url(manifest: ModuleManifest) -> str:
+    explicit = str(manifest.runtime.get("health_url") or "").strip()
+    if explicit:
+        return explicit
+    health_path = str(manifest.runtime.get("health_path") or "").strip() or "/health"
+    port = manifest.runtime.get("default_port")
+    if port:
+        return f"http://127.0.0.1:{port}{health_path}"
+    return ""
+
+
+def runtime_pid_path(key: str) -> Path:
+    RUNTIME_PID_DIR.mkdir(parents=True, exist_ok=True)
+    return RUNTIME_PID_DIR / f"{key}.pid"
+
+
+def runtime_log_path(key: str) -> Path:
+    RUNTIME_LOG_DIR.mkdir(parents=True, exist_ok=True)
+    return RUNTIME_LOG_DIR / f"{key}.log"
+
+
+def _run_bash(command: str, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["/bin/bash", "-lc", command],
+        cwd=str(cwd) if cwd else None,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+
+def _pid_is_running(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
+
+def runtime_status(key: str, manifests: dict[str, ModuleManifest] | None = None) -> dict[str, Any]:
+    catalog = manifests or discover_manifests()
+    manifest = catalog[key]
+    pid_file = runtime_pid_path(key)
+    pid: int | None = None
+    running = False
+    if pid_file.exists():
+        try:
+            pid = int(pid_file.read_text().strip())
+        except Exception:
+            pid = None
+        if pid is not None:
+            running = _pid_is_running(pid)
+            if not running:
+                pid_file.unlink(missing_ok=True)
+    health = runtime_health(manifest)
+    return {
+        "key": key,
+        "mode": str(manifest.runtime.get("mode") or "host-only"),
+        "pid": pid,
+        "running": running,
+        "health": health,
+        "log_path": str(runtime_log_path(key)),
+    }
+
+
+def runtime_health(manifest: ModuleManifest) -> dict[str, Any]:
+    url = runtime_health_url(manifest)
+    if not url:
+        return {"ok": True, "status": "n/a", "url": "", "detail": "no runtime health endpoint declared", "payload": None}
+    headers: dict[str, str] = {"Accept": "application/json"}
+    bridge_key = os.getenv("DISCORD_BRIDGE_API_KEY", "").strip()
+    if bridge_key:
+        headers["X-Dashburg-Bridge-Key"] = bridge_key
+    req = urllib.request.Request(url, headers=headers, method="GET")
+    try:
+        with urllib.request.urlopen(req, timeout=3) as response:
+            raw = response.read().decode("utf-8", errors="replace")
+        payload = json.loads(raw) if raw else {}
+        status = str((payload or {}).get("status") or "ok")
+        return {"ok": True, "status": status, "url": url, "detail": "reachable", "payload": payload if isinstance(payload, dict) else None}
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace") if exc.fp else str(exc)
+        return {"ok": False, "status": f"http_{exc.code}", "url": url, "detail": detail[:400], "payload": None}
+    except Exception as exc:
+        return {"ok": False, "status": "unreachable", "url": url, "detail": str(exc), "payload": None}
+
+
+def install_runtime(key: str, manifests: dict[str, ModuleManifest] | None = None) -> dict[str, Any]:
+    catalog = manifests or discover_manifests()
+    manifest = catalog[key]
+    mode = str(manifest.runtime.get("mode") or "host-only")
+    host_dir = runtime_host_dir(manifest)
+    if mode != "bundled-local-service":
+        return {"ok": True, "key": key, "mode": mode, "detail": "no bundled runtime install required"}
+    if not host_dir or not host_dir.exists():
+        return {"ok": False, "key": key, "error": "runtime_dir_missing", "runtime_dir": str(host_dir) if host_dir else ""}
+    env_example = runtime_example_env_file(manifest)
+    env_path = runtime_env_file(manifest)
+    install_cmd = runtime_install_command(manifest)
+    post_install = runtime_post_install(manifest)
+    command_parts = [
+        "python3 -m venv .venv",
+        "source .venv/bin/activate",
+        "pip install -U pip",
+    ]
+    if install_cmd:
+        command_parts.append(install_cmd)
+    if env_example and env_path and env_example.exists() and not env_path.exists():
+        command_parts.append(f"cp {shlex.quote(str(env_example.name))} {shlex.quote(str(env_path.name))}")
+    command_parts.extend(post_install)
+    result = _run_bash(" && ".join(command_parts), cwd=host_dir)
+    return {
+        "ok": result.returncode == 0,
+        "key": key,
+        "mode": mode,
+        "runtime_dir": str(host_dir),
+        "stdout": result.stdout[-4000:],
+        "stderr": result.stderr[-4000:],
+        "install_command": install_cmd,
+        "post_install": post_install,
+    }
+
+
+def start_runtime(key: str, manifests: dict[str, ModuleManifest] | None = None) -> dict[str, Any]:
+    catalog = manifests or discover_manifests()
+    manifest = catalog[key]
+    mode = str(manifest.runtime.get("mode") or "host-only")
+    if mode != "bundled-local-service":
+        return {"ok": True, "key": key, "mode": mode, "detail": "no separate bundled runtime start required"}
+    host_dir = runtime_host_dir(manifest)
+    start_command = str(manifest.runtime.get("start_command") or "").strip()
+    if not host_dir or not host_dir.exists() or not start_command:
+        return {"ok": False, "key": key, "error": "runtime_start_config_missing", "runtime_dir": str(host_dir) if host_dir else ""}
+    pid_file = runtime_pid_path(key)
+    if pid_file.exists():
+        try:
+            pid = int(pid_file.read_text().strip())
+            if _pid_is_running(pid):
+                return {"ok": True, "key": key, "mode": mode, "pid": pid, "detail": "already running"}
+        except Exception:
+            pass
+        pid_file.unlink(missing_ok=True)
+    log_path = runtime_log_path(key)
+    log_fp = open(log_path, "ab")
+    proc = subprocess.Popen(
+        ["/bin/bash", "-lc", f"source .venv/bin/activate && exec {start_command}"],
+        cwd=str(host_dir),
+        stdout=log_fp,
+        stderr=log_fp,
+        preexec_fn=os.setsid,
+    )
+    pid_file.write_text(f"{proc.pid}\n", encoding="utf-8")
+    return {"ok": True, "key": key, "mode": mode, "pid": proc.pid, "log_path": str(log_path)}
+
+
+def stop_runtime(key: str, manifests: dict[str, ModuleManifest] | None = None) -> dict[str, Any]:
+    pid_file = runtime_pid_path(key)
+    if not pid_file.exists():
+        return {"ok": True, "key": key, "detail": "not running"}
+    try:
+        pid = int(pid_file.read_text().strip())
+    except Exception:
+        pid_file.unlink(missing_ok=True)
+        return {"ok": True, "key": key, "detail": "stale pid file removed"}
+    try:
+        os.killpg(pid, signal.SIGTERM)
+    except OSError:
+        pass
+    pid_file.unlink(missing_ok=True)
+    return {"ok": True, "key": key, "pid": pid, "detail": "stop requested"}
+
+
+def systemd_service_name(key: str) -> str:
+    return f"dashburg-module-{key}.service"
+
+
+def render_systemd_unit(key: str, manifests: dict[str, ModuleManifest] | None = None) -> str:
+    catalog = manifests or discover_manifests()
+    manifest = catalog[key]
+    host_dir = runtime_host_dir(manifest)
+    if not host_dir:
+        raise ValueError(f"module {key} has no bundled runtime directory")
+    env_path = runtime_env_file(manifest)
+    start_command = str(manifest.runtime.get("start_command") or "").strip()
+    if not start_command:
+        raise ValueError(f"module {key} has no runtime start command")
+    lines = [
+        "[Unit]",
+        f"Description=Dashburg Module Runtime: {manifest.name}",
+        "After=network-online.target",
+        "Wants=network-online.target",
+        "",
+        "[Service]",
+        "Type=simple",
+        f"WorkingDirectory={host_dir}",
+        f"EnvironmentFile=-{HOST_ROOT / '.env'}",
+    ]
+    if env_path:
+        lines.append(f"EnvironmentFile=-{env_path}")
+    lines.extend(
+        [
+            f"ExecStart=/bin/bash -lc 'source .venv/bin/activate && exec {start_command}'",
+            "Restart=always",
+            "RestartSec=3",
+            f"StandardOutput=append:{runtime_log_path(key)}",
+            f"StandardError=append:{runtime_log_path(key)}",
+            "",
+            "[Install]",
+            "WantedBy=default.target",
+            "",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def install_runtime_service(key: str, manifests: dict[str, ModuleManifest] | None = None) -> dict[str, Any]:
+    catalog = manifests or discover_manifests()
+    manifest = catalog[key]
+    mode = str(manifest.runtime.get("mode") or "host-only")
+    if mode != "bundled-local-service":
+        return {"ok": True, "key": key, "mode": mode, "detail": "no bundled runtime service required"}
+    systemd_dir = Path.home() / ".config" / "systemd" / "user"
+    systemd_dir.mkdir(parents=True, exist_ok=True)
+    service_path = systemd_dir / systemd_service_name(key)
+    service_path.write_text(render_systemd_unit(key, catalog), encoding="utf-8")
+    result = _run_bash(f"systemctl --user daemon-reload && systemctl --user enable {shlex.quote(service_path.name)}")
+    return {"ok": result.returncode == 0, "key": key, "service_path": str(service_path), "stdout": result.stdout[-4000:], "stderr": result.stderr[-4000:]}
+
+
+def start_runtime_service(key: str) -> dict[str, Any]:
+    result = _run_bash(f"systemctl --user start {shlex.quote(systemd_service_name(key))}")
+    return {"ok": result.returncode == 0, "key": key, "stdout": result.stdout[-4000:], "stderr": result.stderr[-4000:]}
+
+
+def runtime_service_status(key: str) -> dict[str, Any]:
+    result = _run_bash(f"systemctl --user status {shlex.quote(systemd_service_name(key))} --no-pager")
+    return {"ok": result.returncode == 0, "key": key, "stdout": result.stdout[-4000:], "stderr": result.stderr[-4000:]}
+
+
+def bootstrap_runtime(key: str, manifests: dict[str, ModuleManifest] | None = None) -> dict[str, Any]:
+    catalog = manifests or discover_manifests()
+    manifest = catalog[key]
+    mode = str(manifest.runtime.get("mode") or "host-only")
+    if mode != "bundled-local-service":
+        return {"ok": True, "key": key, "mode": mode, "detail": "no separate bundled runtime bootstrap required"}
+    install_result = install_runtime(key, catalog)
+    if not install_result.get("ok"):
+        return {"ok": False, "key": key, "step": "install", "result": install_result}
+    service_result = install_runtime_service(key, catalog)
+    if service_result.get("ok"):
+        start_result = start_runtime_service(key)
+        health_result = runtime_health(manifest)
+        return {"ok": bool(start_result.get("ok")), "key": key, "step": "service", "install": install_result, "service": service_result, "start": start_result, "health": health_result}
+    start_result = start_runtime(key, catalog)
+    health_result = runtime_health(manifest)
+    return {"ok": bool(start_result.get("ok")), "key": key, "step": "direct", "install": install_result, "service": service_result, "start": start_result, "health": health_result}
+
+
 def validate_module(key: str, manifests: dict[str, ModuleManifest] | None = None) -> dict[str, Any]:
     catalog = manifests or discover_manifests()
     manifest = catalog.get(key)
@@ -179,8 +497,11 @@ def validate_module(key: str, manifests: dict[str, ModuleManifest] | None = None
     files_dir_ok = manifest.files_dir.exists()
     runtime_service_dir = str(manifest.runtime.get("service_dir") or "").strip()
     runtime_service_ok = True
+    host_runtime_ok = True
+    host_runtime_dir = runtime_host_dir(manifest)
     if runtime_service_dir:
         runtime_service_ok = (manifest.files_dir / runtime_service_dir).exists()
+        host_runtime_ok = bool(host_runtime_dir and host_runtime_dir.exists())
     backend_import_ok = False
     backend_error = ""
     try:
@@ -189,10 +510,15 @@ def validate_module(key: str, manifests: dict[str, ModuleManifest] | None = None
     except Exception as exc:  # pragma: no cover
         backend_error = str(exc)
     frontend_dir = HOST_ROOT / "web" / "src" / "modules"
-    frontend_exists = (frontend_dir / manifest.frontend_key.replace("-", "")).exists() or any(
-        frontend_dir.rglob("module.tsx")
-    )
-    ok = files_dir_ok and runtime_service_ok and backend_import_ok and not missing_modules and not missing_core and frontend_exists
+    frontend_exists = (frontend_dir / manifest.frontend_key.replace("-", "")).exists() or any(frontend_dir.rglob("module.tsx"))
+    health = runtime_health(manifest)
+    runtime_mode = str(manifest.runtime.get("mode") or "host-only")
+    runtime_required = runtime_mode == "bundled-local-service"
+    runtime_ready = runtime_service_ok and host_runtime_ok and (health.get("ok") if runtime_required else True)
+    runtime_ok_for_validation = True
+    if runtime_required and key in installed:
+        runtime_ok_for_validation = bool(health.get("ok")) and runtime_ready
+    ok = files_dir_ok and runtime_service_ok and backend_import_ok and not missing_modules and not missing_core and frontend_exists and runtime_ok_for_validation
     return {
         "ok": ok,
         "key": key,
@@ -205,17 +531,23 @@ def validate_module(key: str, manifests: dict[str, ModuleManifest] | None = None
         "backend_error": backend_error,
         "frontend_entry_ok": frontend_exists,
         "runtime": {
-            "mode": str(manifest.runtime.get("mode") or "host-only"),
+            "mode": runtime_mode,
             "service_dir": runtime_service_dir,
             "service_dir_ok": runtime_service_ok,
+            "host_runtime_dir": str(host_runtime_dir) if host_runtime_dir else "",
+            "host_runtime_dir_ok": host_runtime_ok,
             "default_port": manifest.runtime.get("default_port"),
             "start_command": manifest.runtime.get("start_command"),
+            "install_command": runtime_install_command(manifest),
             "env_file": manifest.runtime.get("env_file"),
             "notes": manifest.runtime.get("notes"),
+            "health": health,
+            "runtime_ready": runtime_ready,
         },
         "smoke": {
             "solo_harness": bool(files_dir_ok and backend_import_ok),
             "host_install": bool(backend_import_ok and not missing_modules and not missing_core),
+            "runtime_health": bool(health.get("ok")) if runtime_required else True,
         },
     }
 
@@ -258,11 +590,7 @@ def install_modules(keys: list[str]) -> dict[str, Any]:
 def uninstall_module(key: str) -> dict[str, Any]:
     manifests = discover_manifests()
     installed = set(get_installed_keys())
-    reverse = sorted(
-        manifest.key
-        for manifest in manifests.values()
-        if manifest.key in installed and key in manifest.module_dependencies
-    )
+    reverse = sorted(manifest.key for manifest in manifests.values() if manifest.key in installed and key in manifest.module_dependencies)
     if reverse:
         return {"ok": False, "key": key, "error": "reverse_dependencies", "dependents": reverse}
     installed.discard(key)

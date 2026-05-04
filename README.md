@@ -82,6 +82,18 @@ Validate a module:
 ./scripts/manage_modules.sh validate ideavault
 ```
 
+Bootstrap a bundled local runtime:
+```bash
+./scripts/bootstrap_module_runtime.sh topic-insights
+./scripts/bootstrap_module_runtime.sh trends-researcher
+```
+
+Install a user systemd service for a module runtime:
+```bash
+./scripts/manage_modules.sh runtime-install-service topic-insights
+./scripts/manage_modules.sh runtime-start-service topic-insights
+```
+
 Optional module packs must live in the sibling path used by the host module manager:
 ```bash
 ~/apps/dashburg-modules

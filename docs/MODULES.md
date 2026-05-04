@@ -27,3 +27,12 @@ Runtime action:
 
 ## Module instructions
 Read the README in each module pack under `~/apps/dashburg-modules/<module>/README.md`.
+
+## Bootstrap commands
+- Install host module: `./scripts/manage_modules.sh install <module>`
+- Install + start bundled runtime: `./scripts/bootstrap_module_runtime.sh <module>`
+- Runtime status: `./scripts/manage_modules.sh runtime-status <module>`
+- Runtime health: `./scripts/manage_modules.sh runtime-health <module>`
+- Install user service: `./scripts/manage_modules.sh runtime-install-service <module>`
+- Start user service: `./scripts/manage_modules.sh runtime-start-service <module>`
+- Service status: `./scripts/manage_modules.sh runtime-service-status <module>`

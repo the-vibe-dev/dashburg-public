@@ -10,7 +10,28 @@ ROOT = Path(__file__).resolve().parents[1]
 BACKEND_ROOT = ROOT / "backend"
 sys.path.insert(0, str(BACKEND_ROOT))
 
-from app.module_system import catalog_payload, install_modules, save_state, uninstall_module, validate_module  # noqa: E402
+from app.module_system import (  # noqa: E402
+    bootstrap_runtime,
+    catalog_payload,
+    install_modules,
+    install_runtime,
+    install_runtime_service,
+    runtime_health,
+    runtime_service_status,
+    runtime_status,
+    save_state,
+    start_runtime,
+    start_runtime_service,
+    stop_runtime,
+    uninstall_module,
+    validate_module,
+    discover_manifests,
+)
+
+
+def _print(payload: object) -> int:
+    print(json.dumps(payload, indent=2))
+    return 0
 
 
 def main() -> int:
@@ -27,22 +48,55 @@ def main() -> int:
     reset_parser = sub.add_parser("reset", help="Reset installed module state")
     reset_parser.add_argument("keys", nargs="*", help="Optional installed keys to keep")
 
+    runtime_install_parser = sub.add_parser("runtime-install", help="Install bundled local runtime for a module")
+    runtime_install_parser.add_argument("key")
+    runtime_start_parser = sub.add_parser("runtime-start", help="Start bundled local runtime for a module")
+    runtime_start_parser.add_argument("key")
+    runtime_stop_parser = sub.add_parser("runtime-stop", help="Stop bundled local runtime for a module")
+    runtime_stop_parser.add_argument("key")
+    runtime_status_parser = sub.add_parser("runtime-status", help="Get runtime status for a module")
+    runtime_status_parser.add_argument("key")
+    runtime_health_parser = sub.add_parser("runtime-health", help="Get runtime health for a module")
+    runtime_health_parser.add_argument("key")
+    runtime_bootstrap_parser = sub.add_parser("runtime-bootstrap", help="Install and start bundled local runtime for a module")
+    runtime_bootstrap_parser.add_argument("key")
+    runtime_service_install_parser = sub.add_parser("runtime-install-service", help="Install a user systemd service for a module runtime")
+    runtime_service_install_parser.add_argument("key")
+    runtime_service_start_parser = sub.add_parser("runtime-start-service", help="Start a user systemd service for a module runtime")
+    runtime_service_start_parser.add_argument("key")
+    runtime_service_status_parser = sub.add_parser("runtime-service-status", help="Get user systemd service status for a module runtime")
+    runtime_service_status_parser.add_argument("key")
+
     args = parser.parse_args()
     if args.command == "list":
-        print(json.dumps(catalog_payload(), indent=2))
-        return 0
+        return _print(catalog_payload())
     if args.command == "install":
-        print(json.dumps(install_modules([args.key]), indent=2))
-        return 0
+        return _print(install_modules([args.key]))
     if args.command == "validate":
-        print(json.dumps(validate_module(args.key), indent=2))
-        return 0
+        return _print(validate_module(args.key))
     if args.command == "uninstall":
-        print(json.dumps(uninstall_module(args.key), indent=2))
-        return 0
+        return _print(uninstall_module(args.key))
     if args.command == "reset":
-        print(json.dumps(save_state(args.keys), indent=2))
-        return 0
+        return _print(save_state(args.keys))
+    if args.command == "runtime-install":
+        return _print(install_runtime(args.key))
+    if args.command == "runtime-start":
+        return _print(start_runtime(args.key))
+    if args.command == "runtime-stop":
+        return _print(stop_runtime(args.key))
+    if args.command == "runtime-status":
+        return _print(runtime_status(args.key))
+    if args.command == "runtime-health":
+        manifests = discover_manifests()
+        return _print(runtime_health(manifests[args.key]))
+    if args.command == "runtime-bootstrap":
+        return _print(bootstrap_runtime(args.key))
+    if args.command == "runtime-install-service":
+        return _print(install_runtime_service(args.key))
+    if args.command == "runtime-start-service":
+        return _print(start_runtime_service(args.key))
+    if args.command == "runtime-service-status":
+        return _print(runtime_service_status(args.key))
     return 1
 
 

@@ -70,6 +70,19 @@ export function AddModulesPage() {
     mutationFn: (key: string) => apiPost("/api/module-system/validate", { key }),
   });
 
+  const runtimeBootstrapMutation = useMutation({
+    mutationFn: (key: string) => apiPost("/api/module-system/runtime/bootstrap", { key }),
+    onSuccess: refresh,
+  });
+
+  const runtimeInstallServiceMutation = useMutation({
+    mutationFn: (key: string) => apiPost("/api/module-system/runtime/install-service", { key }),
+  });
+
+  const runtimeStatusMutation = useMutation({
+    mutationFn: (key: string) => apiPost("/api/module-system/runtime/status", { key }),
+  });
+
   const uninstallMutation = useMutation({
     mutationFn: (key: string) => apiPost("/api/module-system/uninstall", { key }),
     onSuccess: refresh,
@@ -93,7 +106,7 @@ export function AddModulesPage() {
           <div className="grid gap-3 lg:grid-cols-2">
             {items.map((item) => {
               const validation = item.validation;
-              const busy = installMutation.isPending || uninstallMutation.isPending || validateMutation.isPending;
+              const busy = installMutation.isPending || uninstallMutation.isPending || validateMutation.isPending || runtimeBootstrapMutation.isPending || runtimeInstallServiceMutation.isPending || runtimeStatusMutation.isPending;
               return (
                 <div key={item.key} className="rounded-xl border border-border/70 bg-background/20 p-4 space-y-3">
                   <div className="flex items-start justify-between gap-3">
@@ -158,6 +171,15 @@ export function AddModulesPage() {
                     <Button size="sm" variant="outline" onClick={() => validateMutation.mutate(item.key)} disabled={busy}>
                       Validate
                     </Button>
+                    <Button size="sm" variant="outline" onClick={() => runtimeStatusMutation.mutate(item.key)} disabled={busy}>
+                      Runtime
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => runtimeBootstrapMutation.mutate(item.key)} disabled={busy || !item.installed}>
+                      Bootstrap
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => runtimeInstallServiceMutation.mutate(item.key)} disabled={busy || !item.installed}>
+                      Install Service
+                    </Button>
                     <Button size="sm" variant="outline" onClick={() => uninstallMutation.mutate(item.key)} disabled={busy || !item.installed}>
                       Uninstall
                     </Button>
@@ -177,6 +199,32 @@ export function AddModulesPage() {
           <CardContent>
             <pre className="overflow-x-auto rounded-xl border border-border/70 bg-background/20 p-4 text-xs text-muted-foreground">
               {JSON.stringify(validateMutation.data, null, 2)}
+            </pre>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {runtimeBootstrapMutation.data ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Last Runtime Bootstrap</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <pre className="overflow-x-auto rounded-xl border border-border/70 bg-background/20 p-4 text-xs text-muted-foreground">
+              {JSON.stringify(runtimeBootstrapMutation.data, null, 2)}
+            </pre>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {runtimeStatusMutation.data ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Runtime Status</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <pre className="overflow-x-auto rounded-xl border border-border/70 bg-background/20 p-4 text-xs text-muted-foreground">
+              {JSON.stringify(runtimeStatusMutation.data, null, 2)}
             </pre>
           </CardContent>
         </Card>

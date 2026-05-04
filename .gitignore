@@ -19,6 +19,7 @@ web/node_modules/
 web/dist/
 web/*.tsbuildinfo
 data/
+services/
 *.log
 *.sqlite
 *.sqlite3
