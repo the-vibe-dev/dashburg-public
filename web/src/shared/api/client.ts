@@ -32,13 +32,12 @@ function buildHeaders(path: string, extra?: Record<string, string>): Record<stri
   const isScheduleOpsPath = path.startsWith("/api/scheduleops/");
   const isMemoryPath = path.startsWith("/api/memory/");
   const isMonitoringPath = path.startsWith("/api/monitoring/");
-  const isDiscordPath = path.startsWith("/api/discord/");
   const isChatPath = path.startsWith("/api/chat/");
   const isLocalOpsPath = path.startsWith("/api/localops/");
-  if ((isRemoteOpsPath || isOrchestrationPath || isScheduleOpsPath || isMemoryPath || isMonitoringPath || isDiscordPath || isChatPath) && adminToken) {
+  if ((isRemoteOpsPath || isOrchestrationPath || isScheduleOpsPath || isMemoryPath || isMonitoringPath || isChatPath) && adminToken) {
     headers["X-RemoteOps-Admin-Token"] = adminToken;
   }
-  if ((isRemoteOpsPath || isOrchestrationPath || isScheduleOpsPath || isMemoryPath || isMonitoringPath || isDiscordPath || isChatPath) && clientToken) {
+  if ((isRemoteOpsPath || isOrchestrationPath || isScheduleOpsPath || isMemoryPath || isMonitoringPath || isChatPath) && clientToken) {
     headers["X-RemoteOps-Client-Token"] = clientToken;
   }
   if (isLocalOpsPath && localOpsToken) {
